@@ -1,0 +1,35 @@
+name: Collaboration State Machine
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  enforce-handover:
+    runs-on: ubuntu-latest
+    if: >
+      contains(fromJson('["xiaoge-bot[bot]", "market-agent-bot[bot]", "shadow-agent-bot[bot]", "audit-agent[bot]"]'), github.event.comment.user.login) &&
+      !contains(github.event.comment.body, '[Handover')
+    
+    steps:
+      - name: Backup comment before deletion
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const comment = context.payload.comment;
+            console.log(`Backing up comment ${comment.id} by ${comment.user.login}`);
+            // Log to workflow run for audit trail
+            core.setOutput('comment_body', comment.body);
+            core.setOutput('comment_author', comment.user.login);
+            core.setOutput('issue_number', context.payload.issue.number);
+      
+      - name: Delete non-compliant comment
+        uses: actions/github-script@v6
+        with:
+          script: |
+            await github.rest.issues.deleteComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: context.payload.comment.id
+            });
+            console.log(`Collaboration guard: deleted comment without handover tag from agent ${context.payload.comment.user.login}`);

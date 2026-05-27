@@ -1,0 +1,29 @@
+name: Shadow Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  shadow-review:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.user.login != 'tangshaowan'
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: pip install anthropic PyGithub requests
+      
+      - name: Run Shadow Review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          python .github/scripts/shadow-review.py

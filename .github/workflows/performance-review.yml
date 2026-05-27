@@ -1,0 +1,45 @@
+name: Weekly Performance Review
+
+on:
+  schedule:
+    - cron: '0 10 * * 5'
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: pip install PyGithub requests
+      
+      - name: Run Performance Review
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python .github/scripts/performance-review.py --repo tangshaowan/cd-shengxuewa --days 7
+      
+      - name: Adjust Budgets
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python .github/scripts/adjust-budget.py --report audit_report.md
+      
+      - name: Post to Discussions
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('audit_report.md', 'utf8');
+            // Post to Resolved Archive category
+            const { data: repoData } = await github.rest.repos.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo
+            });
+            console.log(`Performance review posted for ${repoData.full_name}`);

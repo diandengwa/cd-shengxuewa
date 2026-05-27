@@ -1,0 +1,25 @@
+name: Sync to Knowledge Mirror
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'wiki/**'
+      - 'MEMORY.md'
+      - 'pipeline-state/**'
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Sync to opc-agent-knowledge
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MIRROR_TOKEN: ${{ secrets.MIRROR_REPO_TOKEN }}
+        run: |
+          git remote add mirror https://x-access-token:${MIRROR_TOKEN}@github.com/tangshaowan/opc-agent-knowledge.git 2>/dev/null || true
+          git push mirror main --force

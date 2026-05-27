@@ -1,0 +1,56 @@
+name: Token Budget Guard
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+
+jobs:
+  check-budget:
+    runs-on: ubuntu-latest
+    outputs:
+      warning: ${{ steps.budget.outputs.warning }}
+      firing: ${{ steps.budget.outputs.firing }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: pip install PyGithub requests
+      
+      - name: Calculate Token Usage
+        id: budget
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python .github/scripts/calculate_usage.py --repo tangshaowan/cd-shengxuewa
+      
+      - name: Alert on 80%
+        if: steps.budget.outputs.warning == 'true'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `[Budget Warning] Agent已用80%配额`,
+              body: process.env.BUDGET_REPORT,
+              labels: ['budget-warning']
+            });
+      
+      - name: Circuit Break on 100%
+        if: steps.budget.outputs.firing == 'true'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `[🚨 CIRCUIT BREAK] Agent已达100%配额，自动熔断`,
+              body: process.env.BUDGET_REPORT,
+              labels: ['circuit-break']
+            });

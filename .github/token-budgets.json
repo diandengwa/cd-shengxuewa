@@ -1,0 +1,9 @@
+{
+  "period": "2026-06",
+  "agents": {
+    "xiaoge-bot": { "quota": 1000000, "used": 0, "last_reset": "2026-06-01T00:00:00Z" },
+    "market-agent-bot": { "quota": 800000, "used": 0, "last_reset": "2026-06-01T00:00:00Z" },
+    "shadow-agent-bot": { "quota": 300000, "used": 0, "last_reset": "2026-06-01T00:00:00Z" },
+    "audit-agent": { "quota": 200000, "used": 0, "last_reset": "2026-06-01T00:00:00Z" }
+  }
+}
