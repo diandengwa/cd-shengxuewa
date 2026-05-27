@@ -17,20 +17,13 @@ jobs:
         with:
           fetch-depth: 0
       
-      - name: Sync to opc-agent-knowledge
+      - name: Sync to opc-agent-knowledge via SSH Deploy Key
         env:
-          MIRROR_TOKEN: ${{ secrets.MIRROR_REPO_TOKEN }}
+          MIRROR_DEPLOY_KEY: ${{ secrets.MIRROR_DEPLOY_KEY }}
         run: |
-          # Debug: verify token works via API first
-          curl -s -H "Authorization: token ${MIRROR_TOKEN}" \
-            https://api.github.com/repos/tangshaowan/opc-agent-knowledge \
-            | head -5
-          
-          # Add mirror remote with token embedded
-          git remote add mirror "https://x-access-token:${MIRROR_TOKEN}@github.com/tangshaowan/opc-agent-knowledge.git" 2>/dev/null || true
-          
-          # Debug: show remote URLs
-          git remote -v
-          
-          # Force push
+          mkdir -p ~/.ssh
+          echo "$MIRROR_DEPLOY_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+          git remote add mirror git@github.com:tangshaowan/opc-agent-knowledge.git 2>/dev/null || true
           git push mirror main --force
