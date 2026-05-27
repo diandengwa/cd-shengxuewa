@@ -21,8 +21,5 @@ jobs:
         env:
           MIRROR_TOKEN: ${{ secrets.MIRROR_REPO_TOKEN }}
         run: |
-          # Configure git to use the token for the mirror repo
-          git config --global credential.helper store
-          echo "https://x-access-token:${MIRROR_TOKEN}@github.com" > ~/.git-credentials
-          git remote add mirror https://github.com/tangshaowan/opc-agent-knowledge.git 2>/dev/null || true
-          git push mirror main --force
+          # Push directly with token in URL (works around checkout credential cleanup)
+          git push "https://x-access-token:${MIRROR_TOKEN}@github.com/tangshaowan/opc-agent-knowledge.git" main --force
