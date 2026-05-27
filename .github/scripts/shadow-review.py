@@ -1,14 +1,14 @@
 # .github/scripts/shadow-review.py
-# v10: pr.diff()→requests获取diff, 只审查触发PR而非全量
-import anthropic
+# v11: DeepSeek V4 影子审查（替代Anthropic，国内可用）
 import json
 import os
 import sys
 import requests as http_requests
+from openai import OpenAI
 from github import Github
 
 def get_pr_diff(repo_name: str, pr_number: int, token: str) -> str:
-    """通过GitHub REST API获取PR diff（PyGithub无.diff()方法）"""
+    """通过GitHub REST API获取PR diff"""
     headers = {
         "Authorization": f"token {token}",
         "Accept": "application/vnd.github.v3.diff"
@@ -19,11 +19,14 @@ def get_pr_diff(repo_name: str, pr_number: int, token: str) -> str:
     return resp.text
 
 def shadow_review(pr_diff: str, pr_author: str, memory_md: str) -> dict:
-    """影子模型审查PR"""
-    client = anthropic.Anthropic()
+    """DeepSeek V4 Flash 影子审查PR"""
+    api_key = os.environ.get("DEEPSEEK_API_KEY", "")
+    base_url = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
     
-    response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
+    client = OpenAI(api_key=api_key, base_url=base_url)
+    
+    response = client.chat.completions.create(
+        model="deepseek-v4-flash",
         max_tokens=1500,
         messages=[{
             "role": "user",
@@ -43,17 +46,22 @@ def shadow_review(pr_diff: str, pr_author: str, memory_md: str) -> dict:
 4. logic: 逻辑是否自洽（pass/warn/fail）
 
 返回格式：{{
-  "taste": {{\"verdict\": \"pass|warn|fail\", \"reason\": \"...\"}},
-  "architecture": {{\"verdict\": \"pass|warn|fail\", \"reason\": \"...\"}},
-  "security": {{\"verdict\": \"pass|warn|fail\", \"reason\": \"...\"}},
-  "logic": {{\"verdict\": \"pass|warn|fail\", \"reason\": \"...\"}},
+  "taste": {{"verdict": "pass|warn|fail", "reason": "..."}},
+  "architecture": {{"verdict": "pass|warn|fail", "reason": "..."}},
+  "security": {{"verdict": "pass|warn|fail", "reason": "..."}},
+  "logic": {{"verdict": "pass|warn|fail", "reason": "..."}},
   "overall": "approved|alert",
   "confidence": 0.0-1.0
 }}"""
         }]
     )
     
-    return json.loads(response.content[0].text)
+    text = response.choices[0].message.content
+    # 清理可能的markdown代码块包裹
+    if text.startswith("```"):
+        lines = text.split("\n")
+        text = "\n".join(lines[1:-1] if lines[-1].startswith("```") else lines[1:])
+    return json.loads(text)
 
 def post_shadow_comment(g: Github, repo_name: str, pr_number: int, result: dict):
     """在PR上发布影子审查结果"""
@@ -73,7 +81,7 @@ def post_shadow_comment(g: Github, repo_name: str, pr_number: int, result: dict)
 **发现的问题**:
 {chr(10).join(verdicts)}
 
-> ⚠️ 此审查由影子模型自动生成。创始人确认后，系统将自动扣除该Agent下周20%的Token额度。
+> ⚠️ 此审查由 DeepSeek V4 Flash 影子模型自动生成。创始人确认后，系统将自动扣除该Agent下周20%的Token额度。
 """)
     else:
         pr.create_issue_comment(f"""### ✅ [Shadow_Approved]
@@ -81,6 +89,8 @@ def post_shadow_comment(g: Github, repo_name: str, pr_number: int, result: dict)
 **置信度**: {result['confidence']:.0%}
 
 所有维度通过初审，等待超级智能体二审。
+
+> 审查模型: DeepSeek V4 Flash
 """)
 
 if __name__ == "__main__":
@@ -106,4 +116,4 @@ if __name__ == "__main__":
     
     result = shadow_review(pr_diff, pr.user.login, memory_content)
     post_shadow_comment(g, repo_name, pr_number, result)
-    print(f"[OK] Shadow review completed for PR #{pr_number}: {result['overall']}")
+    print(f"[OK] Shadow review completed for PR #{pr_number}: {result['overall']} (model: deepseek-v4-flash)")

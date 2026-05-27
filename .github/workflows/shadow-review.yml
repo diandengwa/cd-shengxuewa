@@ -19,11 +19,12 @@ jobs:
           python-version: '3.11'
       
       - name: Install dependencies
-        run: pip install anthropic PyGithub requests
+        run: pip install openai PyGithub requests
       
       - name: Run Shadow Review
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_BASE_URL: ${{ secrets.DEEPSEEK_BASE_URL }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
