@@ -19,8 +19,10 @@ jobs:
       
       - name: Sync to opc-agent-knowledge
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MIRROR_TOKEN: ${{ secrets.MIRROR_REPO_TOKEN }}
         run: |
-          git remote add mirror https://x-access-token:${MIRROR_TOKEN}@github.com/tangshaowan/opc-agent-knowledge.git 2>/dev/null || true
+          # Configure git to use the token for the mirror repo
+          git config --global credential.helper store
+          echo "https://x-access-token:${MIRROR_TOKEN}@github.com" > ~/.git-credentials
+          git remote add mirror https://github.com/tangshaowan/opc-agent-knowledge.git 2>/dev/null || true
           git push mirror main --force
