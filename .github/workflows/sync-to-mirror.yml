@@ -21,5 +21,16 @@ jobs:
         env:
           MIRROR_TOKEN: ${{ secrets.MIRROR_REPO_TOKEN }}
         run: |
-          # Push directly with token in URL (works around checkout credential cleanup)
-          git push "https://x-access-token:${MIRROR_TOKEN}@github.com/tangshaowan/opc-agent-knowledge.git" main --force
+          # Debug: verify token works via API first
+          curl -s -H "Authorization: token ${MIRROR_TOKEN}" \
+            https://api.github.com/repos/tangshaowan/opc-agent-knowledge \
+            | head -5
+          
+          # Add mirror remote with token embedded
+          git remote add mirror "https://x-access-token:${MIRROR_TOKEN}@github.com/tangshaowan/opc-agent-knowledge.git" 2>/dev/null || true
+          
+          # Debug: show remote URLs
+          git remote -v
+          
+          # Force push
+          git push mirror main --force
