@@ -2,6 +2,7 @@ name: Shadow Review
 
 on:
   pull_request:
+  workflow_dispatch:
     types: [opened, synchronize]
 
 jobs:
