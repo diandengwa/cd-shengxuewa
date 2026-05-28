@@ -1,3 +1,2 @@
-﻿E2E closed-loop test - retry with DeepSeek API key
-Timestamp: 2026-05-28T14:20:00+08:00
-Secret fix applied
+﻿E2E closed-loop test - secret fix v2
+Timestamp: 2026-05-28T14:25:00+08:00
