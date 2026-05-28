@@ -42,9 +42,9 @@ jobs:
             await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title: `[Budget Warning] Agent已用80%配额`,
+              title: `[Budget Warning] Agent used 80% quota`,
               body: process.env.BUDGET_REPORT,
-              labels: ['budget-warning']
+              labels: ['token-budget-warning']
             });
       
       - name: Circuit Break on 100%
@@ -55,7 +55,7 @@ jobs:
             await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title: `[🚨 CIRCUIT BREAK] Agent已达100%配额，自动熔断`,
+              title: `[CIRCUIT BREAK] Agent hit 100% quota, auto-paused`,
               body: process.env.BUDGET_REPORT,
-              labels: ['circuit-break']
+              labels: ['token-budget-exceeded']
             });
