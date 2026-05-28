@@ -3,12 +3,16 @@ name: Shadow Review
 on:
   pull_request:
   workflow_dispatch:
-    types: [opened, synchronize]
+
+permissions:
+  pull-requests: write
+  contents: read
+  actions: read
 
 jobs:
   shadow-review:
     runs-on: ubuntu-latest
-    if: github.event.pull_request.user.login != 'tangshaowan'
+    if: github.event_name == 'pull_request' && github.event.pull_request.user.login != 'tangshaowan'
     
     steps:
       - uses: actions/checkout@v4
