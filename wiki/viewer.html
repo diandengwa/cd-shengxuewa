@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>K12 Wiki 阅读器</title>
+<!-- marked.js: Markdown → HTML -->
+<script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+<!-- highlight.js: 代码高亮 -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11/styles/github.min.css">
+<script src="https://cdn.jsdelivr.net/npm/highlight.js@11/highlight.min.js"></script>
+<style>
+  :root {
+    --primary: #1a73e8;
+    --primary-light: #e8f0fe;
+    --bg: #f5f7fa;
+    --card-bg: #ffffff;
+    --text: #333;
+    --text-muted: #888;
+    --border: #e0e0e0;
+    --sidebar-width: 260px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.8;
+  }
+
+  /* ===== 顶部导航栏 ===== */
+  .topbar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    background: white;
+    border-bottom: 1px solid var(--border);
+    padding: 0 24px;
+    height: 52px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  }
+  .topbar .back-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    color: var(--primary);
+    text-decoration: none;
+    font-weight: 500;
+    font-size: 0.95em;
+    padding: 6px 12px;
+    border-radius: 6px;
+    transition: background 0.15s;
+  }
+  .topbar .back-btn:hover { background: var(--primary-light); }
+  .topbar .breadcrumb {
+    color: var(--text-muted);
+    font-size: 0.88em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+  }
+  .topbar .breadcrumb a { color: var(--primary); text-decoration: none; }
+  .topbar .breadcrumb a:hover { text-decoration: underline; }
+  .topbar .breadcrumb .sep { margin: 0 6px; color: #ccc; }
+  .topbar .source-link {
+    color: var(--text-muted);
+    font-size: 0.82em;
+    text-decoration: none;
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .topbar .source-link:hover { color: var(--primary); border-color: var(--primary); }
+
+  /* ===== 布局 ===== */
+  .layout {
+    margin-top: 52px;
+    display: flex;
+    min-height: calc(100vh - 52px);
+  }
+
+  /* ===== 侧边目录 ===== */
+  .sidebar {
+    width: var(--sidebar-width);
+    position: fixed;
+    top: 52px;
+    bottom: 0;
+    left: 0;
+    background: white;
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 20px 16px;
+    transition: transform 0.2s;
+    z-index: 50;
+  }
+  .sidebar.collapsed { transform: translateX(calc(-1 * var(--sidebar-width))); }
+  .sidebar h3 {
+    font-size: 0.82em;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #f0f0f0;
+  }
+  .toc-list { list-style: none; }
+  .toc-list li { margin-bottom: 2px; }
+  .toc-list a {
+    display: block;
+    padding: 5px 8px;
+    color: #555;
+    text-decoration: none;
+    font-size: 0.88em;
+    border-radius: 4px;
+    transition: all 0.12s;
+    line-height: 1.4;
+    border-left: 2px solid transparent;
+  }
+  .toc-list a:hover { background: var(--primary-light); color: var(--primary); }
+  .toc-list a.active { background: var(--primary-light); color: var(--primary); border-left-color: var(--primary); font-weight: 500; }
+  .toc-list .toc-h3 { padding-left: 20px; font-size: 0.84em; }
+  .toc-list .toc-h4 { padding-left: 32px; font-size: 0.82em; color: #888; }
+
+  /* ===== 主内容区 ===== */
+  .content-wrapper {
+    margin-left: var(--sidebar-width);
+    flex: 1;
+    min-width: 0;
+    transition: margin-left 0.2s;
+  }
+  .content-wrapper.full { margin-left: 0; }
+
+  .article {
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 32px 40px 60px;
+    background: white;
+    min-height: calc(100vh - 52px);
+  }
+
+  /* ===== Frontmatter 元信息卡 ===== */
+  .meta-card {
+    background: linear-gradient(135deg, #f0f4ff 0%, #f8faff 100%);
+    border: 1px solid #d0dff8;
+    border-radius: 10px;
+    padding: 18px 22px;
+    margin-bottom: 28px;
+    font-size: 0.88em;
+  }
+  .meta-card .meta-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 6px;
+    align-items: baseline;
+  }
+  .meta-card .meta-row:last-child { margin-bottom: 0; }
+  .meta-card .meta-key {
+    color: #5f6368;
+    font-weight: 500;
+    min-width: 80px;
+    white-space: nowrap;
+  }
+  .meta-card .meta-val { color: #333; }
+  .meta-tag {
+    display: inline-block;
+    background: #e8f0fe;
+    color: var(--primary);
+    font-size: 0.82em;
+    padding: 2px 8px;
+    border-radius: 4px;
+    margin-right: 4px;
+  }
+  .meta-tag.quality-s { background: #e8f5e9; color: #2e7d32; }
+  .meta-tag.quality-a { background: #e3f2fd; color: #1565c0; }
+  .meta-tag.quality-b { background: #fff8e1; color: #f57c00; }
+  .meta-tag.quality-c { background: #fce4ec; color: #c62828; }
+
+  /* ===== Markdown 渲染样式 ===== */
+  .markdown-body h1 {
+    font-size: 1.85em;
+    color: #1a1a1a;
+    margin: 36px 0 16px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #eee;
+  }
+  .markdown-body h2 {
+    font-size: 1.45em;
+    color: #1a1a1a;
+    margin: 30px 0 14px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #f0f0f0;
+  }
+  .markdown-body h3 {
+    font-size: 1.2em;
+    color: #333;
+    margin: 24px 0 10px;
+  }
+  .markdown-body h4 {
+    font-size: 1.05em;
+    color: #444;
+    margin: 20px 0 8px;
+  }
+  .markdown-body p { margin-bottom: 14px; }
+  .markdown-body strong { color: #1a1a1a; }
+  .markdown-body a { color: var(--primary); text-decoration: none; }
+  .markdown-body a:hover { text-decoration: underline; }
+
+  /* 列表 */
+  .markdown-body ul, .markdown-body ol { margin-bottom: 14px; padding-left: 24px; }
+  .markdown-body li { margin-bottom: 4px; }
+  .markdown-body ul li::marker { color: var(--primary); }
+  .markdown-body ol li::marker { color: var(--primary); font-weight: 500; }
+
+  /* 表格 */
+  .markdown-body table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 18px;
+    font-size: 0.92em;
+    overflow-x: auto;
+    display: block;
+  }
+  .markdown-body thead { background: #f5f7fa; }
+  .markdown-body th {
+    padding: 10px 14px;
+    text-align: left;
+    font-weight: 600;
+    color: #333;
+    border-bottom: 2px solid #ddd;
+    white-space: nowrap;
+  }
+  .markdown-body td {
+    padding: 9px 14px;
+    border-bottom: 1px solid #eee;
+    vertical-align: top;
+  }
+  .markdown-body tr:hover { background: #fafbff; }
+
+  /* 代码 */
+  .markdown-body code {
+    background: #f1f3f5;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.88em;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    color: #c7254e;
+  }
+  .markdown-body pre {
+    background: #f6f8fa;
+    border-radius: 8px;
+    padding: 16px 20px;
+    overflow-x: auto;
+    margin-bottom: 16px;
+    border: 1px solid #e8e8e8;
+  }
+  .markdown-body pre code {
+    background: none;
+    padding: 0;
+    color: inherit;
+    font-size: 0.88em;
+    line-height: 1.6;
+  }
+
+  /* 引用块 */
+  .markdown-body blockquote {
+    border-left: 4px solid var(--primary);
+    padding: 12px 20px;
+    margin-bottom: 16px;
+    background: #f8faff;
+    border-radius: 0 6px 6px 0;
+    color: #555;
+  }
+  .markdown-body blockquote p:last-child { margin-bottom: 0; }
+
+  /* 水平线 */
+  .markdown-body hr {
+    border: none;
+    border-top: 1px solid #e0e0e0;
+    margin: 28px 0;
+  }
+
+  /* 图片 */
+  .markdown-body img {
+    max-width: 100%;
+    border-radius: 6px;
+    margin: 10px 0;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  }
+
+  /* 任务列表 */
+  .markdown-body .task-list-item { list-style: none; margin-left: -20px; }
+  .markdown-body .task-list-item input[type="checkbox"] { margin-right: 6px; }
+
+  /* ===== 加载/错误状态 ===== */
+  .loading {
+    text-align: center;
+    padding: 80px 20px;
+    color: var(--text-muted);
+  }
+  .loading .spinner {
+    width: 36px; height: 36px;
+    border: 3px solid #e0e0e0;
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    margin: 0 auto 16px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .error-box {
+    text-align: center;
+    padding: 60px 20px;
+    color: #c62828;
+  }
+  .error-box .error-icon { font-size: 3em; margin-bottom: 16px; }
+  .error-box .error-msg { color: #666; margin-top: 8px; font-size: 0.92em; }
+
+  /* ===== 侧边栏切换按钮 ===== */
+  .sidebar-toggle {
+    position: fixed;
+    top: 60px;
+    left: 8px;
+    z-index: 60;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: white;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    font-size: 16px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+    transition: all 0.15s;
+  }
+  .sidebar-toggle:hover { color: var(--primary); border-color: var(--primary); }
+  .sidebar-toggle.shifted { left: calc(var(--sidebar-width) + 8px); }
+
+  /* ===== 移动端 ===== */
+  @media (max-width: 900px) {
+    .sidebar { transform: translateX(calc(-1 * var(--sidebar-width))); }
+    .sidebar.show { transform: translateX(0); box-shadow: 4px 0 20px rgba(0,0,0,0.1); }
+    .content-wrapper { margin-left: 0 !important; }
+    .article { padding: 20px 16px 40px; }
+    .sidebar-toggle { left: 8px !important; }
+  }
+</style>
+</head>
+<body>
+
+<!-- 顶部导航栏 -->
+<div class="topbar">
+  <a href="index.html" class="back-btn">← 知识库首页</a>
+  <div class="breadcrumb" id="breadcrumb">加载中...</div>
+  <a href="#" class="source-link" id="sourceLink" target="_blank">查看源码</a>
+</div>
+
+<!-- 侧边栏切换 -->
+<button class="sidebar-toggle shifted" id="sidebarToggle" title="切换目录">☰</button>
+
+<!-- 侧边目录 -->
+<div class="sidebar" id="sidebar">
+  <h3>目录</h3>
+  <ul class="toc-list" id="tocList"></ul>
+</div>
+
+<!-- 主内容 -->
+<div class="layout">
+  <div class="content-wrapper" id="contentWrapper">
+    <div class="article" id="article">
+      <div class="loading" id="loading">
+        <div class="spinner"></div>
+        <div>正在加载文档...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// 配置
+// ============================================================
+marked.setOptions({
+  gfm: true,
+  breaks: true,
+  highlight: function(code, lang) {
+    if (lang && hljs.getLanguage(lang)) {
+      try { return hljs.highlight(code, { language: lang }).value; } catch(e) {}
+    }
+    return hljs.highlightAuto(code).value;
+  }
+});
+
+// ============================================================
+// 解析URL参数
+// ============================================================
+const params = new URLSearchParams(window.location.search);
+const mdFile = params.get('f') || '';
+
+if (!mdFile) {
+  document.getElementById('loading').innerHTML =
+    '<div class="error-box"><div class="error-icon">📄</div><div>未指定文档</div><div class="error-msg">请从知识库首页点击文档链接进入</div></div>';
+}
+
+// ============================================================
+// 面包屑
+// ============================================================
+function renderBreadcrumb(filepath) {
+  const parts = filepath.split('/');
+  let html = '<a href="index.html">Wiki</a>';
+  let path = '';
+  parts.forEach((part, i) => {
+    path += (i > 0 ? '/' : '') + part;
+    if (i < parts.length - 1) {
+      html += '<span class="sep">/</span><a href="index.html">' + decodeURIComponent(part) + '</a>';
+    } else {
+      html += '<span class="sep">/</span>' + decodeURIComponent(part.replace(/\.md$/, ''));
+    }
+  });
+  document.getElementById('breadcrumb').innerHTML = html;
+}
+
+// ============================================================
+// 解析frontmatter
+// ============================================================
+function parseFrontmatter(text) {
+  const match = text.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
+  if (!match) return { meta: null, body: text };
+  const yaml = match[1];
+  const body = text.slice(match[0].length);
+  const meta = {};
+  yaml.split('\n').forEach(line => {
+    const m = line.match(/^(\w[\w_]*):\s*(.*)$/);
+    if (m) {
+      let val = m[2].trim();
+      // 尝试解析简单数组
+      if (val.startsWith('[') && val.endsWith(']')) {
+        try { val = JSON.parse(val.replace(/'/g, '"')); } catch(e) {}
+      }
+      meta[m[1]] = val;
+    }
+  });
+  return { meta, body };
+}
+
+// ============================================================
+// 渲染元信息卡
+// ============================================================
+function renderMetaCard(meta) {
+  if (!meta || Object.keys(meta).length === 0) return '';
+
+  const fieldMap = {
+    title: '标题', district: '区县', year: '年份', grade: '学段',
+    type: '类型', source: '来源', data_quality: '数据质量',
+    extraction_method: '获取方式', last_verified: '最后验证',
+    school_count: '学校数量', updated: '更新日期',
+    data_note: '数据说明', description: '描述'
+  };
+
+  let html = '<div class="meta-card">';
+  // 标题行
+  if (meta.title) {
+    html += '<div class="meta-row"><span class="meta-key">📄</span><span class="meta-val" style="font-size:1.05em;font-weight:500;">' + meta.title + '</span></div>';
+  }
+  // 其他字段
+  for (const [key, val] of Object.entries(meta)) {
+    if (key === 'title') continue;
+    const label = fieldMap[key] || key;
+    let valHtml = '';
+    if (key === 'data_quality') {
+      const q = (val + '').toLowerCase();
+      const cls = q.includes('s') || q.includes('官方') ? 'quality-s' :
+                  q.includes('a') ? 'quality-a' :
+                  q.includes('b') ? 'quality-b' : 'quality-c';
+      valHtml = '<span class="meta-tag ' + cls + '">' + val + '</span>';
+    } else if (Array.isArray(val)) {
+      valHtml = val.map(v => '<span class="meta-tag">' + v + '</span>').join('');
+    } else if (typeof val === 'string' && val.includes(',')) {
+      valHtml = val.split(',').map(v => '<span class="meta-tag">' + v.trim() + '</span>').join('');
+    } else {
+      valHtml = val;
+    }
+    html += '<div class="meta-row"><span class="meta-key">' + label + '</span><span class="meta-val">' + valHtml + '</span></div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+// ============================================================
+// 生成目录
+// ============================================================
+function generateTOC(html) {
+  const temp = document.createElement('div');
+  temp.innerHTML = html;
+  const headings = temp.querySelectorAll('h1, h2, h3, h4');
+  const toc = [];
+  headings.forEach((h, i) => {
+    const id = 'heading-' + i;
+    h.id = id;
+    const level = parseInt(h.tagName[1]);
+    const text = h.textContent.trim();
+    if (text) toc.push({ id, level, text });
+  });
+  // 返回修改后的html和toc
+  return { html: temp.innerHTML, toc };
+}
+
+function renderTOC(toc) {
+  const list = document.getElementById('tocList');
+  if (toc.length === 0) {
+    list.innerHTML = '<li style="color:#999;font-size:0.85em;padding:8px;">本文无目录</li>';
+    return;
+  }
+  list.innerHTML = toc.map(item => {
+    const cls = item.level === 3 ? 'toc-h3' : item.level === 4 ? 'toc-h4' : '';
+    return '<li><a href="#' + item.id + '" class="' + cls + '">' + item.text + '</a></li>';
+  }).join('');
+
+  // 滚动高亮
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        list.querySelectorAll('a').forEach(a => a.classList.remove('active'));
+        const active = list.querySelector('a[href="#' + entry.target.id + '"]');
+        if (active) active.classList.add('active');
+      }
+    });
+  }, { rootMargin: '-60px 0px -80% 0px' });
+  toc.forEach(item => {
+    const el = document.getElementById(item.id);
+    if (el) observer.observe(el);
+  });
+}
+
+// ============================================================
+// 侧边栏切换
+// ============================================================
+const sidebar = document.getElementById('sidebar');
+const contentWrapper = document.getElementById('contentWrapper');
+const toggle = document.getElementById('sidebarToggle');
+let sidebarVisible = window.innerWidth > 900;
+
+function updateSidebar() {
+  if (window.innerWidth <= 900) {
+    sidebar.classList.toggle('show', sidebarVisible);
+  } else {
+    sidebar.classList.toggle('collapsed', !sidebarVisible);
+    contentWrapper.classList.toggle('full', !sidebarVisible);
+  }
+  toggle.classList.toggle('shifted', sidebarVisible && window.innerWidth > 900);
+  toggle.textContent = sidebarVisible ? '✕' : '☰';
+}
+
+toggle.addEventListener('click', () => {
+  sidebarVisible = !sidebarVisible;
+  updateSidebar();
+});
+
+// ============================================================
+// 加载并渲染Markdown
+// ============================================================
+async function loadAndRender() {
+  if (!mdFile) return;
+
+  renderBreadcrumb(mdFile);
+
+  // 源码链接
+  const sourceLink = document.getElementById('sourceLink');
+  sourceLink.href = mdFile;
+
+  try {
+    const resp = await fetch(mdFile);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const text = await resp.text();
+
+    // 解析frontmatter
+    const { meta, body } = parseFrontmatter(text);
+
+    // 渲染Markdown
+    let html = marked.parse(body);
+
+    // 生成TOC + 注入heading id
+    const { html: htmlWithIds, toc } = generateTOC(html);
+
+    // 组装页面
+    const article = document.getElementById('article');
+    article.innerHTML = renderMetaCard(meta) + '<div class="markdown-body">' + htmlWithIds + '</div>';
+
+    // 渲染目录
+    renderTOC(toc);
+
+    // 更新标题
+    const firstH1 = article.querySelector('h1');
+    const title = meta?.title || (firstH1 ? firstH1.textContent.trim() : mdFile);
+    document.title = title + ' - K12 Wiki';
+
+    // 高亮代码块
+    article.querySelectorAll('pre code').forEach(block => {
+      hljs.highlightElement(block);
+    });
+
+    // 拦截内部.md链接
+    article.addEventListener('click', e => {
+      const a = e.target.closest('a');
+      if (!a) return;
+      const href = a.getAttribute('href');
+      if (href && href.endsWith('.md') && !href.startsWith('http') && !href.startsWith('//')) {
+        e.preventDefault();
+        // 解析相对路径
+        const basePath = mdFile.includes('/') ? mdFile.substring(0, mdFile.lastIndexOf('/') + 1) : '';
+        const newFile = new URL(href, window.location.origin + '/' + basePath).pathname;
+        const relPath = newFile.replace(/^\//, '');
+        window.location.href = 'viewer.html?f=' + encodeURIComponent(relPath);
+      }
+    });
+
+    updateSidebar();
+
+  } catch (err) {
+    document.getElementById('article').innerHTML =
+      '<div class="error-box"><div class="error-icon">❌</div>' +
+      '<div>加载失败: ' + err.message + '</div>' +
+      '<div class="error-msg">文件路径: ' + mdFile + '</div>' +
+      '<div style="margin-top:16px;"><a href="' + mdFile + '" style="color:#1a73e8;">查看原始文件 →</a></div></div>';
+  }
+}
+
+loadAndRender();
+</script>
+</body>
+</html>

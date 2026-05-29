@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>点灯蛙·成都升学AI诊断</title>
+    <meta name="description" content="帮成都升学家长判断：我的情况，到底行不行。AI四步裁决引擎，资格判断+灰色地带+竞争烈度+时间规划。">
+    <style>
+        :root {
+            --primary: #1a73e8;
+            --primary-dark: #0d47a1;
+            --primary-light: #e8f0fe;
+            --accent: #ff6d00;
+            --success: #00c853;
+            --text: #212121;
+            --text-sec: #616161;
+            --text-light: #9e9e9e;
+            --bg: #fafafa;
+            --card: #ffffff;
+            --border: #e0e0e0;
+            --radius: 16px;
+            --shadow: 0 2px 12px rgba(0,0,0,0.06);
+            --shadow-lg: 0 8px 32px rgba(0,0,0,0.1);
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            overflow-x: hidden;
+        }
+
+        /* Hero */
+        .hero {
+            background: linear-gradient(135deg, #0d47a1 0%, #1565c0 30%, #1a73e8 60%, #42a5f5 100%);
+            color: white;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 40px 20px;
+            position: relative;
+            overflow: hidden;
+        }
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -20%;
+            width: 600px;
+            height: 600px;
+            background: radial-gradient(circle, rgba(255,255,255,0.08) 0%, transparent 70%);
+            border-radius: 50%;
+        }
+        .hero::after {
+            content: '';
+            position: absolute;
+            bottom: -30%;
+            left: -10%;
+            width: 400px;
+            height: 400px;
+            background: radial-gradient(circle, rgba(255,255,255,0.05) 0%, transparent 70%);
+            border-radius: 50%;
+        }
+        .hero-content {
+            position: relative;
+            z-index: 1;
+            text-align: center;
+            max-width: 640px;
+        }
+        .logo-row { font-size: 56px; margin-bottom: 12px; }
+        .hero h1 {
+            font-size: 40px;
+            font-weight: 800;
+            margin-bottom: 6px;
+            letter-spacing: -0.5px;
+        }
+        .hero-tagline {
+            font-size: 20px;
+            font-weight: 500;
+            opacity: 0.95;
+            margin-bottom: 8px;
+        }
+        .hero-sub {
+            font-size: 15px;
+            opacity: 0.7;
+            margin-bottom: 36px;
+            line-height: 1.6;
+        }
+        .cta-primary {
+            display: inline-block;
+            padding: 16px 48px;
+            background: white;
+            color: var(--primary);
+            border-radius: 32px;
+            font-size: 18px;
+            font-weight: 700;
+            text-decoration: none;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.15);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .cta-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
+
+        .hero-badges {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 28px;
+            justify-content: center;
+        }
+        .h-badge {
+            background: rgba(255,255,255,0.15);
+            backdrop-filter: blur(4px);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        /* Scroll hint */
+        .scroll-hint {
+            margin-top: 40px;
+            font-size: 13px;
+            opacity: 0.5;
+            animation: float 2s ease-in-out infinite;
+        }
+        @keyframes float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(6px); } }
+
+        /* Sections */
+        .section {
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 60px 20px;
+        }
+        .section-label {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--primary);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 8px;
+        }
+        .section-title {
+            font-size: 28px;
+            font-weight: 800;
+            margin-bottom: 12px;
+            line-height: 1.3;
+        }
+        .section-desc {
+            font-size: 16px;
+            color: var(--text-sec);
+            margin-bottom: 36px;
+            line-height: 1.7;
+        }
+
+        /* 4-step engine */
+        .steps {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+        }
+        .step-card {
+            background: var(--card);
+            border-radius: var(--radius);
+            padding: 24px;
+            box-shadow: var(--shadow);
+            border: 1px solid var(--border);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .step-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-lg); }
+        .step-num {
+            display: inline-block;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 28px;
+            font-size: 13px;
+            font-weight: 700;
+            color: white;
+            margin-bottom: 10px;
+        }
+        .s1 { background: #2196f3; }
+        .s2 { background: #ff9800; }
+        .s3 { background: #f44336; }
+        .s4 { background: #4caf50; }
+        .step-card h3 { font-size: 17px; font-weight: 700; margin-bottom: 6px; }
+        .step-card p { font-size: 14px; color: var(--text-sec); line-height: 1.6; }
+
+        /* Differentiator */
+        .diff-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            margin-top: 24px;
+        }
+        .diff-card {
+            border-radius: var(--radius);
+            padding: 28px;
+            position: relative;
+            overflow: hidden;
+        }
+        .diff-them {
+            background: #f5f5f5;
+            border: 1px solid var(--border);
+        }
+        .diff-us {
+            background: linear-gradient(135deg, #e8f0fe, #bbdefb);
+            border: 2px solid var(--primary);
+        }
+        .diff-badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 700;
+            margin-bottom: 12px;
+        }
+        .them-badge { background: #e0e0e0; color: #757575; }
+        .us-badge { background: var(--primary); color: white; }
+        .diff-card h3 { font-size: 18px; margin-bottom: 10px; }
+        .diff-card ul { list-style: none; padding: 0; }
+        .diff-card li { font-size: 14px; color: var(--text-sec); padding: 5px 0; padding-left: 24px; position: relative; line-height: 1.5; }
+        .diff-card li::before { position: absolute; left: 0; }
+        .diff-them li::before { content: '📋'; }
+        .diff-us li::before { content: '💡'; }
+
+        /* Demo */
+        .demo-box {
+            background: var(--card);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-lg);
+            overflow: hidden;
+            margin-top: 24px;
+        }
+        .demo-header {
+            background: linear-gradient(135deg, var(--primary-dark), var(--primary));
+            color: white;
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .demo-avatar {
+            width: 32px; height: 32px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 16px;
+        }
+        .demo-body { padding: 24px; }
+        .demo-q {
+            background: var(--primary);
+            color: white;
+            padding: 12px 16px;
+            border-radius: 16px 16px 4px 16px;
+            display: inline-block;
+            max-width: 80%;
+            font-size: 15px;
+            line-height: 1.6;
+            margin-bottom: 16px;
+        }
+        .demo-a {
+            background: var(--primary-light);
+            padding: 16px 20px;
+            border-radius: 4px 16px 16px 16px;
+            font-size: 14px;
+            line-height: 1.8;
+        }
+        .demo-a .step-tag {
+            display: inline-block;
+            padding: 1px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 700;
+            color: white;
+            margin-right: 4px;
+        }
+        .demo-a .confidence { font-size: 12px; }
+        .demo-a .fire { font-size: 15px; }
+
+        /* Trust */
+        .trust-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+        }
+        .trust-card {
+            background: var(--card);
+            border-radius: var(--radius);
+            padding: 24px;
+            box-shadow: var(--shadow);
+            border: 1px solid var(--border);
+            text-align: center;
+        }
+        .trust-icon { font-size: 32px; margin-bottom: 8px; }
+        .trust-card h3 { font-size: 16px; margin-bottom: 6px; }
+        .trust-card p { font-size: 13px; color: var(--text-sec); line-height: 1.5; }
+
+        /* Pricing */
+        .price-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+        }
+        .price-card {
+            background: var(--card);
+            border-radius: var(--radius);
+            padding: 28px 24px;
+            box-shadow: var(--shadow);
+            border: 1px solid var(--border);
+            text-align: center;
+            position: relative;
+        }
+        .price-card.popular {
+            border: 2px solid var(--primary);
+            box-shadow: var(--shadow-lg);
+        }
+        .popular-tag {
+            position: absolute;
+            top: -12px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--accent);
+            color: white;
+            padding: 3px 14px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 700;
+        }
+        .price-card h3 { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+        .price { font-size: 32px; font-weight: 800; color: var(--primary); margin: 8px 0; }
+        .price span { font-size: 14px; font-weight: 400; color: var(--text-sec); }
+        .price-features { list-style: none; padding: 0; margin: 16px 0; text-align: left; }
+        .price-features li {
+            font-size: 13px;
+            color: var(--text-sec);
+            padding: 4px 0;
+            padding-left: 22px;
+            position: relative;
+        }
+        .price-features li::before { content: '✓'; position: absolute; left: 0; color: var(--success); font-weight: 700; }
+
+        /* Footer CTA */
+        .cta-section {
+            background: linear-gradient(135deg, var(--primary-dark), var(--primary));
+            color: white;
+            text-align: center;
+            padding: 60px 20px;
+        }
+        .cta-section h2 { font-size: 28px; font-weight: 800; margin-bottom: 8px; }
+        .cta-section p { font-size: 16px; opacity: 0.8; margin-bottom: 24px; }
+        .cta-white {
+            display: inline-block;
+            padding: 14px 40px;
+            background: white;
+            color: var(--primary);
+            border-radius: 28px;
+            font-size: 16px;
+            font-weight: 700;
+            text-decoration: none;
+        }
+
+        footer {
+            text-align: center;
+            padding: 20px;
+            font-size: 12px;
+            color: var(--text-light);
+        }
+        footer a { color: var(--primary); text-decoration: none; }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .hero h1 { font-size: 28px; }
+            .hero-tagline { font-size: 17px; }
+            .steps { grid-template-columns: 1fr; }
+            .diff-grid { grid-template-columns: 1fr; }
+            .trust-grid { grid-template-columns: 1fr; }
+            .price-grid { grid-template-columns: 1fr; }
+            .section-title { font-size: 22px; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- Hero -->
+<section class="hero">
+    <div class="hero-content">
+        <div class="logo-row">🐸💡</div>
+        <h1>点灯蛙</h1>
+        <p class="hero-tagline">帮成都升学家长判断：我的情况，到底行不行</p>
+        <p class="hero-sub">AI原生四步裁决引擎 · 不只告诉你政策是什么，更告诉你该怎么做</p>
+        <a href="/chat" class="cta-primary">开始免费诊断 →</a>
+        <div class="hero-badges">
+            <div class="h-badge">🎯 资格判断</div>
+            <div class="h-badge">🔥 竞争烈度</div>
+            <div class="h-badge">📅 时间规划</div>
+            <div class="h-badge">🛡️ 补救方案</div>
+            <div class="h-badge">🟢🟡🔴 置信度标注</div>
+        </div>
+        <div class="scroll-hint">↓ 了解更多</div>
+    </div>
+</section>
+
+<!-- 4-Step Engine -->
+<section class="section">
+    <div class="section-label">核心引擎</div>
+    <h2 class="section-title">四步裁决，不只是查政策</h2>
+    <p class="section-desc">其他工具告诉你"政策是这样"——点灯蛙帮你判断"你该这样做"。</p>
+    <div class="steps">
+        <div class="step-card">
+            <div class="step-num s1">1</div>
+            <h3>情况理解</h3>
+            <p>从你的描述中提取户籍、社保、居住、年龄等关键信息，构建家庭升学画像</p>
+        </div>
+        <div class="step-card">
+            <div class="step-num s2">2</div>
+            <h3>灰色地带判断</h3>
+            <p>政策写的是一套，实际执行可能是另一套——帮你识别保守版和激进版的解读差异</p>
+        </div>
+        <div class="step-card">
+            <div class="step-num s3">3</div>
+            <h3>竞争烈度评估</h3>
+            <p>基于历史摇号数据评估目标学校竞争难度，推荐冲刺+主战+兜底的路径组合</p>
+        </div>
+        <div class="step-card">
+            <div class="step-num s4">4</div>
+            <h3>时间线+补救</h3>
+            <p>列出每个关键截止日期，给出万一不行的备用方案——永远不留你一个人</p>
+        </div>
+    </div>
+</section>
+
+<!-- Differentiator -->
+<section class="section">
+    <div class="section-label">为什么选点灯蛙</div>
+    <h2 class="section-title">查完数据之后的下一步</h2>
+    <p class="section-desc">别人告诉你"政策是这样的"，点灯蛙告诉你"你该怎么做"。</p>
+    <div class="diff-grid">
+        <div class="diff-card diff-them">
+            <div class="diff-badge them-badge">传统查询工具</div>
+            <h3>📋 查政策</h3>
+            <ul>
+                <li>告诉你大摇号是什么意思</li>
+                <li>展示官方政策原文</li>
+                <li>列出招生计划数字</li>
+                <li>查完之后，还是不知道自己行不行</li>
+            </ul>
+        </div>
+        <div class="diff-card diff-us">
+            <div class="diff-badge us-badge">点灯蛙 AI诊断</div>
+            <h3>💡 判断你的情况</h3>
+            <ul>
+                <li>告诉你外省+高新社保16个月，到底够不够</li>
+                <li>指出政策实际执行的灰色地带</li>
+                <li>评估七中高新摇号烈度，推荐组合路径</li>
+                <li>如果不行，还有3条补救方案等着你</li>
+            </ul>
+        </div>
+    </div>
+</section>
+
+<!-- Demo -->
+<section class="section">
+    <div class="section-label">真实对话示例</div>
+    <h2 class="section-title">看看点灯蛙怎么帮你</h2>
+    <div class="demo-box">
+        <div class="demo-header">
+            <div class="demo-avatar">🐸</div>
+            <div>
+                <div style="font-weight:600">点灯蛙·成都K12升学参谋</div>
+                <div style="font-size:12px;opacity:0.7">随迁子女 · 幼升小</div>
+            </div>
+        </div>
+        <div class="demo-body">
+            <div class="demo-q">我是外省户籍，老公社保在高新南区缴了16个月，孩子2026年幼升小，能上公办吗？</div>
+            <div class="demo-a">
+                <span class="step-tag" style="background:#2196f3">Step1</span> <strong>家庭画像</strong>：随迁子女家庭，居住高新区，社保16个月<br><br>
+                <span class="step-tag" style="background:#ff9800">Step2</span> <strong>灰色地带</strong>：2026年政策要求社保满6个月即可，但实际审核中"持续缴纳状态"可能被严格解读为当月仍在缴<br>
+                <span class="confidence">🟡 置信度</span> — 政策明确但执行口径各区有差异<br><br>
+                <span class="step-tag" style="background:#f44336">Step3</span> <strong>竞争烈度</strong><br>
+                <span class="fire">🔥🔥🔥</span> 高新区公办小学 — 学位紧张，统筹安排可能性大<br>
+                <span class="fire">🔥🔥</span> 高新区民办空余计划 — 2026年随迁子女可参加空余计划录取（新政策）<br>
+                💡 推荐组合：公办统筹为兜底 + 民办空余计划为冲刺<br><br>
+                <span class="step-tag" style="background:#4caf50">Step4</span> <strong>关键节点</strong><br>
+                🔴 4月30日前 — 完成随迁子女入学申请<br>
+                🟡 5月9日前 — 补齐所需资料<br>
+                🛡️ 补救方案：如审核不通过，可尝试彭州/新津等6个放宽门槛区县
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Trust -->
+<section class="section">
+    <div class="section-label">信任架构</div>
+    <h2 class="section-title">不确定的事，绝不硬给你答案</h2>
+    <p class="section-desc">我们不制造焦虑，也不假装全知。每个结论都带来源和置信度。</p>
+    <div class="trust-grid">
+        <div class="trust-card">
+            <div class="trust-icon">📎</div>
+            <h3>透明逻辑链</h3>
+            <p>每个判断都附政策原文出处，你可以自己验证</p>
+        </div>
+        <div class="trust-card">
+            <div class="trust-icon">🟢🟡🔴</div>
+            <h3>置信度声明</h3>
+            <p>🟢确定 🟡较确定 🟠不确定 🔴无法判断——不会把猜测包装成事实</p>
+        </div>
+        <div class="trust-card">
+            <div class="trust-icon">🛡️</div>
+            <h3>优雅失败</h3>
+            <p>不确定时帮你整理向教育局提问清单，而不是装懂</p>
+        </div>
+    </div>
+</section>
+
+<!-- Pricing -->
+<section class="section">
+    <div class="section-label">定价</div>
+    <h2 class="section-title">先免费试，再决定要不要深入</h2>
+    <div class="price-grid">
+        <div class="price-card">
+            <h3>免费版</h3>
+            <div class="price">¥0<span>/周5次</span></div>
+            <ul class="price-features">
+                <li>Step1 情况理解</li>
+                <li>基础8段诊断输出</li>
+                <li>政策查询和黑话翻译</li>
+                <li>资格初步判断</li>
+            </ul>
+        </div>
+        <div class="price-card popular">
+            <div class="popular-tag">最受欢迎</div>
+            <h3>Pro Lite</h3>
+            <div class="price">¥29.9<span>/月</span></div>
+            <ul class="price-features">
+                <li>3次/月深度四步诊断</li>
+                <li>灰色地带判断</li>
+                <li>竞争烈度评估</li>
+                <li>个性化时间线</li>
+                <li>无限基础问答</li>
+            </ul>
+        </div>
+        <div class="price-card">
+            <h3>Pro Max</h3>
+            <div class="price">¥99<span>/月</span></div>
+            <ul class="price-features">
+                <li>无限深度诊断</li>
+                <li>概率排序+趋势分析</li>
+                <li>政策变更推送</li>
+                <li>PDF诊断报告</li>
+                <li>Pro Lite全部功能</li>
+            </ul>
+        </div>
+    </div>
+</section>
+
+<!-- CTA -->
+<section class="cta-section">
+    <h2>你的升学问题，让点灯蛙帮你判断</h2>
+    <p>免费开始，5秒内得到初步结论</p>
+    <a href="/chat" class="cta-white">开始免费诊断 →</a>
+</section>
+
+<footer>
+    <p>点灯蛙 · 成都K12升学参谋 · <a href="/v1.html">v1.4经典版</a></p>
+    <div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.15);font-size:11px;line-height:1.8;color:rgba(255,255,255,0.55);max-width:600px;margin-left:auto;margin-right:auto;">
+      本产品为<strong>内测限量开放</strong>，政策数据以教育局官方通知为准，诊断结果仅供参考，不构成升学建议。<br>
+      我们不会收集您的个人隐私数据，也不售卖任何课程。
+    </div>
+</footer>
+
+</body>
+</html>

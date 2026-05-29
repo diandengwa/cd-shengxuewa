@@ -1,0 +1,45 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# 敏感数据
+data/users.json
+data/invite_codes.json
+data/pending_orders.json
+data/lottery_history.json
+data/ground_truth.json
+
+# 环境变量
+.env
+.env.*
+
+# 日志
+logs/
+*.log
+
+# 备份文件
+*.bak
+*.bak.*
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# OCR临时文件
+wiki/raw/2025_初中划片/ocr_images/
+wiki/raw/2025_初中划片/fullpage_screenshots/
+wiki/raw/2025_初中划片/debug_*.html
+
+# 构建产物
+build/manifest.json
+build/search_index.json
+build/regression_report.json
