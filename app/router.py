@@ -22,7 +22,6 @@ SCENARIO_KEYWORDS = {
         "小学入学报名", "读小学一年级",
         "小学入学", "划片", "适龄儿童", "报名摇号",
         "民办小学", "户籍入学", "小学录取", "片区录取",
-            "wiki/policies/2026_成都市_成都市锦江区普惠性幼儿园招生第一批次网上.md",
 ],
     ScenarioType.TRANSFER: [
         "随迁", "随迁子女", "居住证", "社保", "积分",
@@ -262,9 +261,37 @@ def collect_candidate_pages(scenario: ScenarioType, question: str) -> List[str]:
     return filtered[:10]  # 最多10页，减少噪声
 
 
-def route_question(question: str) -> RouteResult:
-    """路由问题 → 场景 + 候选页面"""
-    scenario, confidence, matched_keywords = classify_scenario(question)
+# 前端学段参数 → 场景类型映射
+STAGE_MAP = {
+    "youshengxiao": ScenarioType.KINDERGARTEN_TO_PRIMARY,
+    "xiaoshengchu": ScenarioType.PRIMARY_TO_MIDDLE,
+    "suiqian": ScenarioType.TRANSFER,
+    "zhongkao": ScenarioType.MIDDLE_SCHOOL_EXAM,
+}
+
+
+def route_question(question: str, stage: str = None) -> RouteResult:
+    """路由问题 → 场景 + 候选页面
+
+    Args:
+        question: 用户问题
+        stage: 前端传入的学段标识(xiaoshengchu/youshengxiao/suiqian/zhongkao)，
+               优先级高于关键词匹配
+    """
+    # MVP: 如果前端明确传了学段，优先使用
+    if stage:
+        forced_scenario = STAGE_MAP.get(stage)
+        if forced_scenario:
+            # 仍然做关键词匹配获取matched_keywords，但场景以stage为准
+            _, _, matched_keywords = classify_scenario(question)
+            scenario = forced_scenario
+            confidence = 0.85  # 用户自选学段，保底0.85置信度
+        else:
+            # stage参数不合法，fallback到关键词匹配
+            scenario, confidence, matched_keywords = classify_scenario(question)
+    else:
+        scenario, confidence, matched_keywords = classify_scenario(question)
+
     candidate_pages = collect_candidate_pages(scenario, question)
 
     return RouteResult(

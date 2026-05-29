@@ -320,7 +320,7 @@ async def diagnose_policy(request: DiagnosisRequest):
 
     # 路由
 
-    route = route_question(request.question)
+    route = route_question(request.question, stage=request.stage)
 
     logger.info(f"[路由] 场景={route.scenario.value}, 置信度={route.confidence:.2f}")
 

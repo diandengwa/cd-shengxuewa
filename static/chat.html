@@ -60,6 +60,112 @@
         .plan-free { background: rgba(255,255,255,0.2); }
         .plan-pro { background: #ffc107; color: #333; }
 
+        /* Stage selector overlay */
+        .stage-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: fadeInOverlay 0.3s ease;
+        }
+        @keyframes fadeInOverlay { from { opacity: 0; } to { opacity: 1; } }
+        .stage-panel {
+            background: white;
+            border-radius: 20px;
+            padding: 32px 28px;
+            max-width: 420px;
+            width: 90%;
+            box-shadow: 0 8px 40px rgba(0,0,0,0.2);
+            animation: slideUp 0.3s ease;
+        }
+        @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        .stage-panel h2 {
+            font-size: 20px;
+            font-weight: 700;
+            text-align: center;
+            margin-bottom: 4px;
+        }
+        .stage-panel .stage-sub {
+            font-size: 13px;
+            color: var(--gray-500);
+            text-align: center;
+            margin-bottom: 24px;
+        }
+        .stage-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+        .stage-card {
+            border: 2px solid var(--gray-200);
+            border-radius: var(--radius);
+            padding: 20px 16px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+        }
+        .stage-card:hover:not(.disabled) {
+            border-color: var(--primary);
+            background: var(--primary-light);
+        }
+        .stage-card.active {
+            border-color: var(--primary);
+            background: var(--primary-light);
+            box-shadow: 0 0 0 3px rgba(26,115,232,0.15);
+        }
+        .stage-card.disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+            background: var(--gray-100);
+        }
+        .stage-icon {
+            font-size: 28px;
+            margin-bottom: 8px;
+        }
+        .stage-card h3 {
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+        .stage-card p {
+            font-size: 12px;
+            color: var(--gray-500);
+        }
+        .stage-card .coming-soon {
+            position: absolute;
+            top: 8px; right: 8px;
+            background: var(--gray-200);
+            color: var(--gray-500);
+            padding: 2px 8px;
+            border-radius: 8px;
+            font-size: 10px;
+            font-weight: 600;
+        }
+        .stage-card.active .coming-soon {
+            background: var(--primary);
+            color: white;
+        }
+        .stage-enter-btn {
+            display: block;
+            width: 100%;
+            padding: 14px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: background 0.2s;
+        }
+        .stage-enter-btn:hover { background: #1565c0; }
+        .stage-enter-btn:disabled { background: var(--gray-500); cursor: not-allowed; }
+
         /* Chat area */
         .chat-container {
             flex: 1;
@@ -265,27 +371,64 @@
             .msg-bot .bubble { max-width: 92%; }
             .msg-user .bubble { max-width: 85%; }
             .input-area { padding: 10px 12px; }
+            .stage-panel { padding: 24px 20px; }
+            .stage-grid { gap: 8px; }
+            .stage-card { padding: 16px 12px; }
         }
     </style>
 </head>
 <body>
+
+<!-- 学段选择浮层 -->
+<div class="stage-overlay" id="stageOverlay">
+    <div class="stage-panel">
+        <h2>🐸 选择学段</h2>
+        <p class="stage-sub">告诉我你关心哪个阶段，我来帮你判断</p>
+        <div class="stage-grid">
+            <div class="stage-card disabled" data-stage="youshengxiao">
+                <div class="stage-icon">👶</div>
+                <h3>幼升小</h3>
+                <p>幼儿园→小学</p>
+                <span class="coming-soon">即将上线</span>
+            </div>
+            <div class="stage-card" data-stage="xiaoshengchu" onclick="selectStage(this)">
+                <div class="stage-icon">🎒</div>
+                <h3>小升初</h3>
+                <p>小学→初中</p>
+                <span class="coming-soon">已开放</span>
+            </div>
+            <div class="stage-card disabled" data-stage="zhongkao">
+                <div class="stage-icon">📝</div>
+                <h3>中考</h3>
+                <p>初中→高中</p>
+                <span class="coming-soon">即将上线</span>
+            </div>
+            <div class="stage-card disabled" data-stage="suiqian">
+                <div class="stage-icon">🏠</div>
+                <h3>随迁子女</h3>
+                <p>外地户籍入学</p>
+                <span class="coming-soon">即将上线</span>
+            </div>
+        </div>
+        <button class="stage-enter-btn" id="stageEnterBtn" disabled onclick="enterStage()">进入诊断 →</button>
+    </div>
+</div>
 
 <div class="header">
     <div class="header-left">
         <div class="logo">🐸</div>
         <div>
             <h1>点灯蛙·成都K12升学参谋</h1>
-            <div class="subtitle">帮成都升学家长判断：我的情况，到底行不行</div>
+            <div class="subtitle" id="headerSubtitle">帮成都升学家长判断：我的情况，到底行不行</div>
         </div>
     </div>
     <span class="plan-badge plan-free" id="planBadge" onclick="window.location.href='/pay'">免费版</span>
 </div>
 
 <div class="quick-prompts" id="quickPrompts">
-    <button class="quick-btn" onclick="ask('我是外省户籍，老公社保高新16个月，孩子2026幼升小，能上公办吗？')">🪪 随迁子女入学</button>
     <button class="quick-btn" onclick="ask('大摇号是什么意思？摇中概率大吗？')">🎯 大摇号解读</button>
     <button class="quick-btn" onclick="ask('我们户口锦江区，想摇七中高新，有机会吗？')">🏫 摇号概率</button>
-    <button class="quick-btn" onclick="ask('幼升小随迁和划片有什么区别？')">📋 入学方式对比</button>
+    <button class="quick-btn" onclick="ask('小升初划片和对口直升有什么区别？')">📋 入学方式对比</button>
     <button class="quick-btn" onclick="ask('公民同招是什么意思？')">💡 黑话翻译</button>
 </div>
 
@@ -307,7 +450,7 @@
 </div>
 
 <div class="input-area">
-    <input type="text" id="inputField" placeholder="输入你的升学问题，如：户口锦江，社保高新，孩子幼升小..."
+    <input type="text" id="inputField" placeholder="输入你的升学问题，如：户口锦江，孩子小升初怎么规划..."
            onkeypress="if(event.key==='Enter')sendMessage()">
     <button id="sendBtn" onclick="sendMessage()">发送</button>
 </div>
@@ -317,6 +460,35 @@ const API_BASE = '/api';
 let currentPlan = 'free';
 let conversationHistory = [];  // 对话历史
 let userOpenid = '';  // 微信openid（由OAuth设置）
+let currentStage = '';  // 用户选择的学段
+
+// ---- 学段选择 ----
+function selectStage(el) {
+    // 清除所有active
+    document.querySelectorAll('.stage-card').forEach(c => c.classList.remove('active'));
+    el.classList.add('active');
+    currentStage = el.dataset.stage;
+    document.getElementById('stageEnterBtn').disabled = false;
+}
+
+function enterStage() {
+    if (!currentStage) return;
+    // 保存学段选择
+    localStorage.setItem('k12_stage', currentStage);
+    // 隐藏浮层
+    document.getElementById('stageOverlay').style.display = 'none';
+    // 更新header副标题
+    const stageNames = { xiaoshengchu: '小升初', youshengxiao: '幼升小', zhongkao: '中考', suiqian: '随迁子女' };
+    document.getElementById('headerSubtitle').textContent = `当前：${stageNames[currentStage] || '综合'} · 帮你判断行不行`;
+    // 更新placeholder
+    const placeholders = {
+        xiaoshengchu: '输入你的小升初问题，如：户口锦江，想摇七中育才...',
+        youshengxiao: '输入你的幼升小问题，如：孩子明年上小学，户口青羊...',
+        zhongkao: '输入你的中考问题，如：5+2区域中考志愿怎么填...',
+        suiqian: '输入你的随迁入学问题，如：外地户口，社保高新16个月...'
+    };
+    document.getElementById('inputField').placeholder = placeholders[currentStage] || '输入你的升学问题...';
+}
 
 // ---- 微信环境检测 & OAuth ----
 (function initWechatAuth() {
@@ -334,6 +506,25 @@ let userOpenid = '';  // 微信openid（由OAuth设置）
     const savedPlan = localStorage.getItem('k12_plan');
     if (savedPlan) {
         updatePlanBadge(savedPlan);
+    }
+
+    // 读取学段：优先URL参数，其次localStorage
+    const urlStage = urlParams.get('stage');
+    const savedStage = urlStage || localStorage.getItem('k12_stage');
+    if (savedStage) {
+        currentStage = savedStage;
+        localStorage.setItem('k12_stage', savedStage);  // 确保URL参数的stage也存下来
+        // 直接隐藏浮层，进入对话
+        const stageNames = { xiaoshengchu: '小升初', youshengxiao: '幼升小', zhongkao: '中考', suiqian: '随迁子女' };
+        document.getElementById('stageOverlay').style.display = 'none';
+        document.getElementById('headerSubtitle').textContent = `当前：${stageNames[savedStage] || '综合'} · 帮你判断行不行`;
+        const placeholders = {
+            xiaoshengchu: '输入你的小升初问题，如：户口锦江，想摇七中育才...',
+            youshengxiao: '输入你的幼升小问题，如：孩子明年上小学，户口青羊...',
+            zhongkao: '输入你的中考问题，如：5+2区域中考志愿怎么填...',
+            suiqian: '输入你的随迁入学问题，如：外地户口，社保高新16个月...'
+        };
+        document.getElementById('inputField').placeholder = placeholders[savedStage] || '输入你的升学问题...';
     }
     
     // 如果在微信环境且未登录，在用户首次发送时触发OAuth
@@ -445,15 +636,21 @@ async function sendMessage() {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 150000);
     try {
+        const reqBody = {
+            question: text,
+            plan: currentPlan,
+            conversation_history: conversationHistory.slice(0, -1),  // 不包含当前消息
+            openid: userOpenid || undefined,
+        };
+        // MVP: 如果用户选了学段，传入stage参数
+        if (currentStage) {
+            reqBody.stage = currentStage;
+        }
+
         const resp = await fetch(`${API_BASE}/diagnose/policy`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                question: text,
-                plan: currentPlan,
-                conversation_history: conversationHistory.slice(0, -1),  // 不包含当前消息
-                openid: userOpenid || undefined,
-            }),
+            body: JSON.stringify(reqBody),
             signal: controller.signal,
         });
         clearTimeout(timeoutId);

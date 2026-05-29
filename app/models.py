@@ -349,6 +349,7 @@ class DiagnosisRequest(BaseModel):
     plan: PlanType = PlanType.FREE
 
     conversation_history: Optional[List[Dict]] = Field(None, description="对话历史[{role,content}]")
+    stage: Optional[str] = Field(None, description="用户选择的学段: xiaoshengchu/youshengxiao/suiqian/zhongkao")
 
 
 
