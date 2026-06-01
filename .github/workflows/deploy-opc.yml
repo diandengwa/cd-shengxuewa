@@ -1,4 +1,4 @@
-name: Deploy OPC Content Factory
+﻿name: Deploy OPC Content Factory
 
 on:
   push:
@@ -38,7 +38,7 @@ jobs:
     
     - name: Run config loader test
       run: |
-        python -c "import sys; sys.path.insert(0, 'scripts'); from config_loader import ConfigLoader; print('✅ ConfigLoader import success')"
+        python -c "import sys; sys.path.insert(0, 'scripts'); from config_loader import ConfigLoader; print('鉁?ConfigLoader import success')"
       continue-on-error: true
     
     - name: Lint with flake8
@@ -68,30 +68,30 @@ jobs:
         host: ${{ secrets.SERVER_HOST }}
         username: ${{ secrets.SERVER_USER }}
         key: ${{ secrets.SERVER_SSH_KEY }}
-        command_timeout: 5m
+        command_timeout: 20m
         script: |
           # Navigate to project directory
           cd /root/cd-shengxuewa
           
           # Pull latest code
-          echo "📥 Pulling latest code..."
+          echo "馃摜 Pulling latest code..."
           git fetch origin && git reset --hard origin/main
           
           # Stop and remove old container
-          echo "🛑 Stopping old container..."
+          echo "馃洃 Stopping old container..."
           docker stop ${{ env.IMAGE_NAME }} || true
           docker rm ${{ env.IMAGE_NAME }} || true
           
           # Remove old image
-          echo "🗑️  Removing old image..."
+          echo "馃棏锔? Removing old image..."
           docker rmi ${{ env.IMAGE_NAME }}:latest || true
           
           # Build new image
-          echo "🔨 Building new image..."
+          echo "馃敤 Building new image..."
           docker build -t ${{ env.IMAGE_NAME }}:latest .
           
           # Start new container
-          echo "🚀 Starting new container..."
+          echo "馃殌 Starting new container..."
           docker run -d \
             --name ${{ env.IMAGE_NAME }} \
             --restart unless-stopped \
@@ -112,14 +112,14 @@ jobs:
           sleep 10
           
           # Verify container is running
-          echo "✅ Verifying container status..."
+          echo "鉁?Verifying container status..."
           docker ps --filter name=${{ env.IMAGE_NAME }} --format "{{.Status}}"
           
           # Clean up old images
-          echo "🧹 Cleaning up..."
+          echo "馃Ч Cleaning up..."
           docker image prune -f
           
-          echo "✅ Deployment completed successfully!"
+          echo "鉁?Deployment completed successfully!"
     
     - name: Verify deployment
       uses: appleboy/ssh-action@v1.0.0
@@ -130,19 +130,19 @@ jobs:
         command_timeout: 2m
         script: |
           # Check container health
-          echo "🏥 Running health check..."
+          echo "馃彞 Running health check..."
           docker exec ${{ env.IMAGE_NAME }} python /app/scripts/health_check.py
           
           # Check container logs
-          echo "📋 Recent logs:"
+          echo "馃搵 Recent logs:"
           docker logs ${{ env.IMAGE_NAME }} --tail 20
           
-          echo "✅ Verification completed!"
+          echo "鉁?Verification completed!"
     
     - name: Notify success on Discord/Slack
       if: success()
       run: |
-        echo "✅ OPC Content Factory deployed successfully to production"
+        echo "鉁?OPC Content Factory deployed successfully to production"
         echo "Container: ${{ env.IMAGE_NAME }}"
         echo "Time: $(date)"
       continue-on-error: true
@@ -150,7 +150,8 @@ jobs:
     - name: Notify failure
       if: failure()
       run: |
-        echo "❌ OPC Content Factory deployment failed"
+        echo "鉂?OPC Content Factory deployment failed"
         echo "Check the logs for details"
         exit 1
       continue-on-error: true
+
