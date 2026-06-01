@@ -1,0 +1,130 @@
+# OPC 内容工厂配置文件
+# 环境变量覆盖: OPC_ROOT, DEEPSEEK_API_KEY, GITHUB_TOKEN, MPTEXT_API_KEY
+
+# 路径配置 (支持环境变量)
+paths:
+  root: "${OPC_ROOT}"
+  knowledge_base: "${OPC_ROOT}/knowledge-base"
+  drafts: "${OPC_ROOT}/drafts"
+  reviewed: "${OPC_ROOT}/reviewed"
+  ready_to_publish: "${OPC_ROOT}/ready-to-publish"
+  raw_articles: "${OPC_ROOT}/raw-articles"
+  logs: "${OPC_ROOT}/logs"
+  scripts: "${OPC_ROOT}/scripts"
+
+# API配置
+api:
+  deepseek:
+    key: "${DEEPSEEK_API_KEY}"
+    url: "https://api.deepseek.com/v1/chat/completions"
+    model: "deepseek-chat"
+    max_retries: 3
+    timeout: 90
+    temperature: 0.7
+    max_tokens: 4000
+
+  mptext:
+    key: "${MPTEXT_API_KEY}"
+    url: "https://api.mptext.com/v1"
+
+# Git配置
+git:
+  repo: "diandengwa/opc-agent-knowledge"
+  branch: "main"
+  token: "${GITHUB_TOKEN}"
+  auto_push: true
+  commit_message: "auto: daily content update {date}"
+
+# 微信推送配置 (可选)
+wechat:
+  enabled: false
+  cdp_url: "http://localhost:9222"
+  # 服务器端禁用微信推送，保留在Windows本地执行
+
+# 日志配置
+logging:
+  level: "INFO"
+  format: "json"
+  file: "${OPC_ROOT}/logs/opc.log"
+  max_size: "100MB"
+  backup_count: 7
+
+# 流水线配置
+pipeline:
+  # 生成配置
+  generation:
+    min_score: 8.0
+    max_attempts: 2
+    default_count: 2
+    channels: ["公众号", "小红书", "朋友圈", "微信群"]
+    
+    # 选题约束
+    constraints:
+      xiaoshengchu_ratio: 0.7  # 70%小升初
+      min_word_count: 800
+      max_word_count: 1500
+      
+    # 标题约束
+    title:
+      min_length: 12
+      max_length: 18
+      required_elements: ["数字", "情绪词"]
+      forbidden_suffixes: ["实操指南", "避坑指南", "完全解读", "全面解析"]
+      max_xiaoshengchu_count: 1
+      
+    # 静态内容检测
+    static_keywords: ["养成计划", "30天", "习惯养成", "遛娃", "亲子互动", "不花钱的", "比手机管用", "暑假", "夏令营", "阅读计划"]
+    
+    # AI味检测
+    ai_smell_keywords: ["赋能", "抓手", "闭环", "沉淀", "方法论", "底层逻辑", "认知升级", "降维打击", "生态", "赛道", "矩阵", "值得关注的是", "不得不提", "不得不说", "让我们拭目以待", "未来可期"]
+
+  # 采集配置
+  collection:
+    max_articles: 100
+    days_back: 30
+    min_word_count: 500
+    
+  # 审稿配置
+  review:
+    min_score: 8.0
+    auto_approve: false
+    
+  # 发布配置
+  publish:
+    auto_publish: false
+    platforms: ["wechat", "xiaohongshu"]
+
+# 人格配置
+personas:
+  - name: "点灯蛙"
+    target: "成都K12家长"
+    account: "成都K12教育"
+    priority: "P0"
+    status: "active"
+    
+  - name: "搞钱蛙"
+    target: "闲鱼卖家"
+    account: "ADSS闲鱼矩阵"
+    priority: "P1"
+    status: "frozen"
+    
+  - name: "养虾蛙"
+    target: "养虾爱好者"
+    account: "养虾知识分享"
+    priority: "P1"
+    status: "frozen"
+    
+  - name: "情报蛙"
+    target: "AI从业者"
+    account: "AI情报局"
+    priority: "P2"
+    status: "frozen"
+
+# 定时任务配置 (cron格式)
+cron:
+  collect: "0 7 * * *"    # 每天07:00采集
+  mine: "0 8 * * *"       # 每天08:00采矿
+  generate: "0 9 * * *"   # 每天09:00生成
+  review: "0 14 * * *"     # 每天14:00审核
+  publish: "0 15 * * *"    # 每天15:00发布
+  sync: "0 */6 * * *"      # 每6小时同步GitHub

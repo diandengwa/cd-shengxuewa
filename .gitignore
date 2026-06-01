@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# Environment variables
+.env
+
+# Logs
+logs/
+*.log
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Project specific
+knowledge-base/*.json
+!knowledge-base/.gitkeep
+drafts/
+reviewed/
+ready-to-publish/
+raw-articles/
+
+# Temporary files
+*.tmp
+*.bak
+~$*
+
+# Documentation (generated)
+doc/*.html
+doc/*.pdf
+
+# Test outputs
+test_output/

@@ -1,0 +1,96 @@
+name: Deploy OPC Content Factory
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # Build and test
+  build-and-test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Run tests
+      run: |
+        python scripts/test_config.py
+    
+    - name: Lint with flake8
+      run: |
+        pip install flake8
+        flake8 scripts/ --count --select=E9,F63,F7,F82 --show-source --statistics
+    
+    - name: Build Docker image
+      run: |
+        docker build . -t opc-content-factory:test
+
+  # Deploy to server
+  deploy:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Deploy to server via SSH
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        script: |
+          # Update code
+          cd /opt/opc
+          git pull origin main
+          
+          # Rebuild and start
+          docker-compose down
+          docker-compose up -d --build
+          
+          # Clean up old images
+          docker image prune -f
+    
+    - name: Health check
+      run: |
+        sleep 10
+        curl -f http://${{ secrets.SERVER_HOST }}:8000/health || exit 1
+    
+    - name: Notify success
+      if: success()
+      run: |
+        echo "✅ OPC Content Factory deployed successfully"
+    
+    - name: Notify failure
+      if: failure()
+      run: |
+        echo "❌ OPC Content Factory deployment failed"
