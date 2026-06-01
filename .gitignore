@@ -1,3 +1,5 @@
+# OPC Content Factory - Git Ignore
+
 # Python
 __pycache__/
 *.py[cod]
@@ -7,16 +9,6 @@ __pycache__/
 env/
 venv/
 ENV/
-*.egg-info/
-dist/
-build/
-
-# Environment variables
-.env
-
-# Logs
-logs/
-*.log
 
 # IDEs
 .vscode/
@@ -24,27 +16,69 @@ logs/
 *.swp
 *.swo
 
+# Logs
+logs/*.log
+*.log
+pipeline_*.log
+
+# Runtime data
+raw-articles/
+knowledge-base/
+drafts/
+reviewed/
+ready-to-publish/
+generated/
+
+# Temporary files
+*.tmp
+*.temp
+/tmp/
+
 # OS
 Thumbs.db
 Desktop.ini
 .DS_Store
 
-# Project specific
-knowledge-base/*.json
-!knowledge-base/.gitkeep
-drafts/
-reviewed/
-ready-to-publish/
-raw-articles/
+# Documentation (non-essential)
+*.html
+*.pdf
+*-彩排*.md
+*_彩排.md
+AI对话*/
 
-# Temporary files
-*.tmp
-*.bak
-~$*
+# Archives
+*.zip
+*.tar.gz
+*.rar
 
-# Documentation (generated)
-doc/*.html
-doc/*.pdf
+# Test files
+test_*.py
+*_test.py
 
-# Test outputs
-test_output/
+# Credentials
+.env
+*.pem
+*.key
+
+# Specific exclusions
+content-factory/
+day1-launch/
+deer-flow/
+guizang-test/
+competitors/
+multica/
+notebooklm-py-main.zip
+agency-agents-main.zip
+andrej-karpathy-skills-main.zip
+claude-code-multiagent-portable.tar.gz
+ecc-main.zip
+gpt-codex-master.zip
+markitdown-main.zip
+stuperpowers-main.zip
+harness-books-main.zip
+
+# Large files
+*.md (exclude root level documentation files)
+AI对话实录*.md
+*彩排*.md
+*排练*.md
