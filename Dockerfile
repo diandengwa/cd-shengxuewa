@@ -22,5 +22,8 @@ ENV OPC_ROOT=/app
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python -c "import sys; sys.exit(0)"
 
-# Default command
-CMD ["python", "scripts/health_check.py"]
+# Make entrypoint executable
+RUN chmod +x entrypoint.sh
+
+# Default command: run production pipeline
+CMD ["./entrypoint.sh"]
