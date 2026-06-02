@@ -1,4 +1,4 @@
-﻿# OPC Content Factory Dockerfile
+# OPC Content Factory Dockerfile
 FROM python:3.12-slim
 
 # Set working directory
@@ -12,7 +12,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Create necessary directories
-RUN mkdir -p knowledge-base drafts reviewed ready-to-publish raw-articles logs
+RUN mkdir -p knowledge-base/fact-claims knowledge-base/index knowledge-base/gap-analysis knowledge-base/pain-points drafts reviewed ready-to-publish raw-articles logs pipeline-logs competitors
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1

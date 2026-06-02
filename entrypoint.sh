@@ -19,14 +19,13 @@ echo "[$(date)] Running health check..."
 python /app/scripts/health_check.py || echo "[$(date)] WARNING: Health check reported issues, continuing anyway..."
 
 # 创建日志目录
-mkdir -p /app/logs
+mkdir -p /app/logs /app/pipeline-logs /app/logs/locks
 PIPELINE_LOG="/app/logs/pipeline_$(date +%Y%m%d).log"
 
 echo "[$(date)] Starting production pipeline..." | tee -a $PIPELINE_LOG
 
 # 定义执行锁文件（防止重复执行）
 LOCK_DIR="/app/logs/locks"
-
 mkdir -p $LOCK_DIR
 
 # 采集阶段
@@ -99,32 +98,43 @@ run_publish_prep() {
     touch "$LOCK_FILE"
 }
 
-# 主循环：按时间表执行pipeline
+# === 启动时立即执行当天未完成的流水线 ===
+echo "[$(date)] Running pending stages from today..." | tee -a $PIPELINE_LOG
+run_collect
+run_mine
+run_generate
+run_review
+run_publish_prep
+echo "[$(date)] All pending stages completed. Entering watch loop." | tee -a $PIPELINE_LOG
+
+# === 主循环：每小时检查是否需要重新执行 ===
+# 每个整点检查，如果当天还有未完成的stage则执行
 echo "[$(date)] Entering main loop..." | tee -a $PIPELINE_LOG
 
 while true; do
     CURRENT_HOUR=$(date +%H)
     CURRENT_MIN=$(date +%M)
     
-    # 17:00 执行采集
-    if [ "$CURRENT_HOUR" = "17" ] && [ "$CURRENT_MIN" -ge "0" ] && [ "$CURRENT_MIN" -lt "5" ]; then
-        run_collect
-    
-    # 17:30 执行采矿
-    elif [ "$CURRENT_HOUR" = "17" ] && [ "$CURRENT_MIN" -ge "30" ] && [ "$CURRENT_MIN" -lt "35" ]; then
-        run_mine
-    
-    # 18:00 执行生成
-    elif [ "$CURRENT_HOUR" = "18" ] && [ "$CURRENT_MIN" -ge "0" ] && [ "$CURRENT_MIN" -lt "5" ]; then
-        run_generate
-    
-    # 18:30 执行审稿
-    elif [ "$CURRENT_HOUR" = "18" ] && [ "$CURRENT_MIN" -ge "30" ] && [ "$CURRENT_MIN" -lt "35" ]; then
-        run_review
-    
-    # 18:50 执行发布准备
-    elif [ "$CURRENT_HOUR" = "18" ] && [ "$CURRENT_MIN" -ge "50" ]; then
-        run_publish_prep
+    # 每个整点（0-5分）检查并执行未完成的stage
+    if [ "$CURRENT_MIN" -ge "0" ] && [ "$CURRENT_MIN" -lt "5" ]; then
+        # 检查是否有未完成的stage
+        TODAY=$(date +%Y%m%d)
+        ALL_DONE=1
+        for stage in collect mine generate review publish; do
+            if [ ! -f "$LOCK_DIR/.${stage}_done_$TODAY" ]; then
+                ALL_DONE=0
+                break
+            fi
+        done
+        
+        if [ "$ALL_DONE" = "0" ]; then
+            echo "[$(date)] Found incomplete stages, running pipeline..." | tee -a $PIPELINE_LOG
+            run_collect
+            run_mine
+            run_generate
+            run_review
+            run_publish_prep
+        fi
     fi
     
     # 每5分钟执行一次健康检查（后台）
