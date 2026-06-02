@@ -1,0 +1,8 @@
+{
+  "agents": [
+    {"id": "xiaona", "name": "\u5c0f\u5a1c", "role": "GTD/\u5065\u5eb7/\u6559\u5b66", "host": "aliyun", "status": "active"},
+    {"id": "xiashu", "name": "\u867e\u53d4", "role": "\u603b\u6307\u6325\u5927\u8111 - \u96f6\u6267\u884c\u7eaf\u7f16\u6392", "host": "tencent", "status": "active"},
+    {"id": "workbuddy", "name": "WorkBuddy", "role": "\u4ea7\u54c1\u5f00\u53d1/\u5185\u5bb9\u751f\u6210", "host": "mac", "status": "standby"}
+  ],
+  "last_updated": "2026-04-28T13:10:00+08:00"
+}
