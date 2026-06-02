@@ -2,7 +2,7 @@
 # OPC Content Factory - Production Pipeline Entrypoint
 # 运行实际的生产流水线（替代纯健康检查循环）
 
-set -e
+# NOTE: Do NOT use 'set -e' — health check failures must not kill the container
 
 export OPC_ROOT=/app
 export PYTHONPATH=/app
@@ -16,10 +16,7 @@ echo "=========================================="
 
 # 健康检查（启动前验证）
 echo "[$(date)] Running health check..."
-python /app/scripts/health_check.py
-if [ $? -ne 0 ]; then
-    echo "[$(date)] WARNING: Health check failed, but continuing..."
-fi
+python /app/scripts/health_check.py || echo "[$(date)] WARNING: Health check reported issues, continuing anyway..."
 
 # 创建日志目录
 mkdir -p /app/logs
@@ -132,7 +129,7 @@ while true; do
     
     # 每5分钟执行一次健康检查（后台）
     if [ $(( $(date +%M) % 5 )) -eq 0 ]; then
-        python /app/scripts/health_check.py > /dev/null 2>&1
+        python /app/scripts/health_check.py > /dev/null 2>&1 || true
     fi
     
     sleep 60

@@ -36,20 +36,24 @@ def check_directories(config) -> bool:
     return all_exist
 
 def check_knowledge_base(config) -> bool:
-    """Check knowledge base"""
+    """Check knowledge base — supports both flat and nested layouts"""
     try:
         kb_dir = config.knowledge_base_dir
         if not kb_dir.exists():
             print(f"[WARN] Knowledge base directory missing: {kb_dir}")
             return False
         
-        # Count knowledge cards
+        # Count knowledge cards (flat + nested)
         card_count = 0
+        # 1) Flat: .json files directly in kb_dir
+        flat_cards = list(kb_dir.glob('*.json'))
+        card_count += len(flat_cards)
+        # 2) Nested: .json files in sub-directories
         for cat_dir in kb_dir.iterdir():
             if cat_dir.is_dir() and not cat_dir.name.startswith('.'):
                 card_count += len(list(cat_dir.glob('*.json')))
         
-        print(f"[INFO] Knowledge cards: {card_count}")
+        print(f"[INFO] Knowledge cards: {card_count} (flat={len(flat_cards)})")
         return card_count > 0
     except Exception as e:
         print(f"[ERROR] Knowledge base check failed: {e}")
