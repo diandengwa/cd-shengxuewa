@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 
-ROOT = Path(r"D:\opc")
+ROOT = Path(r"/app")
 KB_DIR = ROOT / "knowledge-base"
 DRAFTS_DIR = ROOT / "drafts"
 REVIEWED_DIR = ROOT / "reviewed"

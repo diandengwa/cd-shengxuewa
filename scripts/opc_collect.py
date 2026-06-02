@@ -17,15 +17,15 @@ from datetime import datetime, timedelta
 
 API_BASE   = "https://down.mptext.top/api/public/v1"
 AUTH_KEY   = "fb0dd96bc791414da86ade714bfc28fb"
-RAW_DIR    = r"D:\opc\raw-articles"
-PIPELINE_FILE = r"D:\opc\pipeline-state.json"
-INDEX_FILE  = r"D:\opc\knowledge-base\index.json"
-RETRY_FILE  = r"D:\opc\scripts\retry_list.json"
-ACCOUNTS_FILE = r"D:\opc\competitors\accounts.json"
-PROGRESS_FILE = r"D:\opc\pipeline-logs\collect-progress.json"
+RAW_DIR    = r"/app/raw-articles"
+PIPELINE_FILE = r"/app/pipeline-state.json"
+INDEX_FILE  = r"/app/knowledge-base/index.json"
+RETRY_FILE  = r"/app/scripts/retry_list.json"
+ACCOUNTS_FILE = r"/app/competitors/accounts.json"
+PROGRESS_FILE = r"/app/pipeline-logs/collect-progress.json"
 
 today     = datetime.now().strftime("%Y-%m-%d")
-LOG_FILE  = rf"D:\opc\pipeline-logs\collect-{today}.log"
+LOG_FILE  = r"/app/pipeline-logs/collect-{today}.log"
 
 # === Filter Config ===
 TITLE_WHITELIST_OFFICIAL = re.compile(r"招生简章|招生方案|招生计划|入学须知|报名指南")
@@ -415,7 +415,7 @@ if __name__ == "__main__":
         error_msg = f"[{datetime.now().strftime('%H:%M:%S')}] FATAL ERROR: {e}\n{traceback.format_exc()}"
         print(error_msg, flush=True)
         try:
-            with open(rf"D:\opc\pipeline-logs\collect-FATAL-{datetime.now().strftime('%Y%m%d-%H%M%S')}.log", "w", encoding="utf-8") as f:
+            with open(r"/app/pipeline-logs/collect-FATAL-{datetime.now().strftime('%Y%m%d-%H%M%S')}.log", "w", encoding="utf-8") as f:
                 f.write(error_msg)
         except Exception:
             pass

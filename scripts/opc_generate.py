@@ -23,7 +23,7 @@ if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stderr.reconfigure(encoding='utf-8')
 
-ROOT = Path(r"D:\opc")
+ROOT = Path(r"/app")
 KB_DIR = ROOT / "knowledge-base"
 # 草稿目录改到工作区，避免沙箱拦截
 DRAFTS_DIR = Path(r"C:\Users\TangShaoWan\WorkBuddy\2026-05-28-08-51-47\opc-drafts")

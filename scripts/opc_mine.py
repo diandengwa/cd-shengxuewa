@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """OPC 知识采矿 Agent - 4层知识提取 (RIA-TV++ 方法)"""
 import json
 import os
@@ -6,7 +6,7 @@ import re
 from datetime import datetime
 
 DATE = "2026-05-27"
-BASE = "D:/opc"
+BASE = "/app"
 RAW_DIR = f"{BASE}/raw-articles/{DATE}"
 KB_DIR = f"{BASE}/knowledge-base"
 
@@ -251,7 +251,7 @@ def extract_decision_frameworks(articles):
             {"point": "心态", "condition": "考前焦虑紧张", "action": "家长当好'后勤部长'，不做'督战员'"},
             {"point": "电子设备", "condition": "每天刷手机超5小时", "action": "限制使用时间，研究显示增加肥胖风险74%"}
         ],
-        "source_article": "中高考倒计时！这份"健康护航"指南，考生和家长必看",
+        "source_article": "中高考倒计时！这份\"健康护航\"指南，考生和家长必看",
         "source_account": "青羊教育"
     })
     
@@ -282,7 +282,7 @@ def extract_pain_points(articles):
          "source_articles": ["2026成都指标到校生申报及查询官方平台！"],
          "competitor_coverage": "覆盖（本地宝已给出入口链接）"},
         {"pain": "北京语言大学2026年新增了哪些专业？", "level": "L1", "category": "信息型",
-         "source_articles": ["【招办访谈】北京语言大学：聚焦"语言+专业+AI赋能"人才培养"],
+         "source_articles": ["【招办访谈】北京语言大学：聚焦\"语言+专业+AI赋能\"人才培养"],
          "competitor_coverage": "覆盖（阳光高考平台有详细访谈）"},
         {"pain": "西安交大2026招生政策有什么变化？", "level": "L1", "category": "信息型",
          "source_articles": ["重要发布！西安交大2026招生政策十大要点"],
@@ -325,7 +325,7 @@ def extract_pain_points(articles):
          "source_articles": ["2026年成都市第一批次幼儿园报名人数最终统计"],
          "competitor_coverage": "空白（补录数据尚未公布，更无操作指南）"},
         {"pain": "考前健康护航具体怎么做？中医食疗方子有哪些？", "level": "L3", "category": "执行型",
-         "source_articles": ["中高考倒计时！这份"健康护航"指南，考生和家长必看"],
+         "source_articles": ["中高考倒计时！这份\"健康护航\"指南，考生和家长必看"],
          "competitor_coverage": "部分覆盖（青羊教育给出6方面建议，但缺乏具体执行清单和食谱）"},
         {"pain": "成华嘉祥校园开放日怎么预约？要带什么？", "level": "L3", "category": "执行型",
          "source_articles": ["2026成华嘉祥小升初、初升高校园开放日邀请函"],
@@ -348,7 +348,7 @@ def extract_pain_points(articles):
          "source_articles": ["【高考护航】警惕涉考陷阱，远离舞弊违法红线"],
          "competitor_coverage": "部分覆盖（有案例，但未量化法律后果的具体影响）"},
         {"pain": "考前孩子突然发烧/肠胃不适，有什么应急方案？", "level": "L4", "category": "风险型",
-         "source_articles": ["中高考倒计时！这份"健康护航"指南，考生和家长必看"],
+         "source_articles": ["中高考倒计时！这份\"健康护航\"指南，考生和家长必看"],
          "competitor_coverage": "空白（健康指南偏日常，无考前突发应急方案）"},
     ]
     pain_points.extend(l4_points)
