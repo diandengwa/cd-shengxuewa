@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  shengxuewa-app:
+    build: .
+    container_name: shengxuewa-app
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - K12_ENV=production
+      - K12_HOST=0.0.0.0
+      - K12_PORT=8000
+      - K12_LOG_LEVEL=info
+      - BASE_URL=https://www.diandengwa.com
+      - WECHAT_APPID=${WECHAT_APPID}
+      - WECHAT_SECRET=${WECHAT_SECRET}
+      - WECHAT_TOKEN=${WECHAT_TOKEN}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./feedback:/app/feedback
+      - ./static:/app/static
+      - ./templates:/app/templates
+    networks:
+      - shengxuewa-network
+
+networks:
+  shengxuewa-network:
+    driver: bridge
