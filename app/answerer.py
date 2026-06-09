@@ -18,7 +18,7 @@ from .models import (
     Step3CompetitionAndPaths, Step4Timeline, PathOption,
     CompetitionLevel, PlanType, FamilyInfo, AdvisorResult,
 )
-from .loaders import wiki_loader, gt_loader, lottery_loader
+from .loaders import wiki_loader, gt_loader, lottery_loader, knowledge_card_loader
 from .router import route_question, has_gray_zone, extract_districts
 from app.url_extractor import extract_official_url_from_content
 
@@ -139,6 +139,24 @@ def build_wiki_context(candidate_pages: List[str], max_chars: int = 12000) -> st
             total_chars += len(header) + len(truncated)
 
     return "\n\n---\n\n".join(context_parts)
+
+
+
+def build_knowledge_context(question, scenario="", max_chars=8000):
+    """Build RAG context from dual-core knowledge base.
+
+    Queries the KnowledgeCardLoader which reads JSON cards produced by
+    opc_knowledge_builder.py from:
+      - 0-golden-interpretations/ : Policy fact cards
+      - 0-problems/ : Parent pain-point cards
+    """
+    if not knowledge_card_loader.is_loaded():
+        return ""
+    return knowledge_card_loader.get_context_text(
+        question=question,
+        scenario=scenario,
+        max_chars=max_chars,
+    )
 
 
 # ============================================================
@@ -641,6 +659,17 @@ async def generate_diagnosis(request: DiagnosisRequest, route) -> DiagnosisResul
     # 收集wiki上下文
     wiki_context = build_wiki_context(route.candidate_pages)
 
+    # Build dual-core knowledge context (golden interpretations + pain points)
+    knowledge_context = build_knowledge_context(
+        question=question,
+        scenario=route.scenario.value if route.scenario else "",
+    )
+
+    # Merge knowledge_context into wiki_context for LLM prompts
+    combined_context = wiki_context
+    if knowledge_context:
+        combined_context = wiki_context + "\n\n---\n\n## Dual-Core Knowledge Base\n\n" + knowledge_context
+
     # GT校准（第一轮：仅基于问题）
     gt_results = []
     if gt_loader.is_loaded():
@@ -776,7 +805,7 @@ async def generate_diagnosis(request: DiagnosisRequest, route) -> DiagnosisResul
     universal_prompt = UNIVERSAL_PROMPT.format(
         question=question,
         family_summary=family_summary,
-        wiki_context=wiki_context[:10000],
+        wiki_context=combined_context[:10000],
         conversation_history=history_text,
     )
 
@@ -820,17 +849,58 @@ async def generate_diagnosis(request: DiagnosisRequest, route) -> DiagnosisResul
 
     # ---- 付费层独占：Step2-4 ----
     if plan in (PlanType.LITE, PlanType.MAX):
-        # Step2: 灰色地带（仅在检测到灰色地带关键词时触发）
-        if has_gray_zone(question):
+        import asyncio as _asyncio
+
+        async def dummy_task():
+            return ""
+
+        tasks = []
+        run_step2 = has_gray_zone(question)
+
+        # 1. Step2: 灰色地带任务
+        if run_step2:
             step2_prompt = STEP2_PROMPT.format(
                 question=question,
                 family_summary=family_summary,
-                wiki_context=wiki_context[:6000],
+                wiki_context=combined_context[:6000],
                 conversation_history=history_text,
                 gt_context=gt_context,
             )
-            step2_output = await call_llm("你是成都升学政策灰色地带分析专家。", step2_prompt)
-            step2_data = parse_json_safely(step2_output)
+            tasks.append(call_llm("你是成都升学政策灰色地带分析专家。", step2_prompt))
+        else:
+            tasks.append(dummy_task())
+
+        # 2. Step3: 竞争与路径推荐任务
+        lottery_data = "暂无历史摇号数据"
+        if lottery_loader.is_loaded() and lottery_loader.data:
+            lottery_data = json.dumps(lottery_loader.data[-10:], ensure_ascii=False, indent=2)
+
+        step3_prompt = STEP3_PROMPT.format(
+            question=question,
+            family_summary=family_summary,
+            lottery_data=lottery_data,
+            wiki_context=combined_context[:6000],
+            conversation_history=history_text,
+            gt_context=gt_context,
+        )
+        tasks.append(call_llm("你是成都升学路径规划专家。", step3_prompt))
+
+        # 3. Step4: 时间线规划任务
+        step4_prompt = STEP4_PROMPT.format(
+            question=question,
+            family_summary=family_summary,
+            path_summary=family_summary,  # 先用family_summary，Step3结果未出
+            wiki_context=combined_context[:6000],
+            conversation_history=history_text,
+        )
+        tasks.append(call_llm("你是成都升学时间规划专家。", step4_prompt))
+
+        # 并行执行 Step 2, 3, 4 的 LLM 调用
+        outputs = await _asyncio.gather(*tasks)
+
+        # 解析 Step2
+        if run_step2 and outputs[0]:
+            step2_data = parse_json_safely(outputs[0])
             if step2_data and isinstance(step2_data, dict) and step2_data.get("zone_type") != "无灰色地带":
                 result.step2 = Step2GrayZone(
                     policy_text=step2_data.get("policy_text", ""),
@@ -841,38 +911,8 @@ async def generate_diagnosis(request: DiagnosisRequest, route) -> DiagnosisResul
                     source=step2_data.get("source", ""),
                 )
 
-        # Step3+Step4: 并行调用（优化响应时间）
-        import asyncio as _asyncio
-
-        lottery_data = "暂无历史摇号数据"
-        if lottery_loader.is_loaded() and lottery_loader.data:
-            lottery_data = json.dumps(lottery_loader.data[-10:], ensure_ascii=False, indent=2)
-
-        step3_prompt = STEP3_PROMPT.format(
-            question=question,
-            family_summary=family_summary,
-            lottery_data=lottery_data,
-            wiki_context=wiki_context[:6000],
-            conversation_history=history_text,
-            gt_context=gt_context,
-        )
-
-        # Step4先用family_summary代替path_summary，两者并行
-        step4_prompt = STEP4_PROMPT.format(
-            question=question,
-            family_summary=family_summary,
-            path_summary=family_summary,  # 先用family_summary，Step3结果未出
-            wiki_context=wiki_context[:6000],
-            conversation_history=history_text,
-        )
-
-        # 并行调用Step3和Step4
-        step3_output, step4_output = await _asyncio.gather(
-            call_llm("你是成都升学路径规划专家。", step3_prompt),
-            call_llm("你是成都升学时间规划专家。", step4_prompt),
-        )
-
-        # 解析Step3
+        # 解析 Step3
+        step3_output = outputs[1]
         step3_data = parse_json_safely(step3_output)
         if step3_data and isinstance(step3_data, dict):
             paths = []
@@ -897,7 +937,8 @@ async def generate_diagnosis(request: DiagnosisRequest, route) -> DiagnosisResul
                 overall_assessment=step3_data.get("overall_assessment", ""),
             )
 
-        # 解析Step4
+        # 解析 Step4
+        step4_output = outputs[2]
         step4_data = parse_json_safely(step4_output)
         if step4_data and isinstance(step4_data, dict):
             result.step4 = Step4Timeline(

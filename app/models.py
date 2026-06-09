@@ -38,6 +38,7 @@ class ScenarioType(str, Enum):
 
     MIDDLE_SCHOOL_EXAM = "中考"
 
+    DISTRICTING_COMPARISON = "districting_comparison"
     UNKNOWN = "未知"
 
 

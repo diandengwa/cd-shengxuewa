@@ -15,7 +15,7 @@ from .wechat import (
     verify_signature, build_oauth_url, exchange_code_for_openid,
     register_or_get_user, get_user_quota, increment_user_quota,
 )
-from .quota import check_quota, get_or_create_user, update_user
+from .quota import check_quota, get_or_create_user, update_user, update_family_info
 
 logger = logging.getLogger("k12_rocket.wechat_router")
 

@@ -11,15 +11,11 @@ K12 Rocket v2.0 — 点灯蛙·成都K12升学参谋
 
 
 import os
-
 import sys
-
 import json
-
 import logging
-
+import secrets
 from pathlib import Path
-
 from datetime import datetime
 
 
@@ -28,15 +24,18 @@ PROJECT_ROOT = Path(__file__).parent.parent
 
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from dotenv import load_dotenv
+load_dotenv(PROJECT_ROOT / ".env")
 
 
-from fastapi import FastAPI, HTTPException, Query
+
+from fastapi import FastAPI, HTTPException, Query, Request
 
 from fastapi.middleware.cors import CORSMiddleware
 
 from fastapi.staticfiles import StaticFiles
 
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 
 import uvicorn
 
@@ -50,7 +49,7 @@ from app.models import (
 
 )
 
-from app.loaders import wiki_loader, gt_loader, lottery_loader
+from app.loaders import wiki_loader, gt_loader, lottery_loader, knowledge_card_loader
 
 from app.router import route_question
 
@@ -69,6 +68,8 @@ from app.invite_codes import (
     check_order_for_openid, verify_admin,
 
 )
+
+from app.payment import wechat_prepay_order, handle_payment_success, decrypt_wechat_resource, IS_MOCK_PAY
 
 
 
@@ -202,6 +203,14 @@ async def startup_event():
 
     """启动时加载所有数据"""
 
+
+    # Load dual-core knowledge base (policy + pain-point cards)
+    if knowledge_card_loader.load():
+        golden_count = len(knowledge_card_loader.golden_cards)
+        problem_count = len(knowledge_card_loader.problem_cards)
+        logger.info(f"[dianwa] dual-core KB loaded: {golden_count} policy + {problem_count} pain cards")
+    else:
+        logger.warning("[dianwa] dual-core KB empty (allowed, pending cold-start)")
     logger.info("[点灯蛙 v2.0] 正在加载数据...")
 
 
@@ -541,6 +550,124 @@ async def order_check(order_id: str, openid: str = ""):
 
 
     return order
+
+
+@app.post("/pay/wechat/prepay")
+async def pay_wechat_prepay(payload: dict):
+    """
+    拉起微信预支付（JSAPI）
+    """
+    order_id = payload.get("order_id", "").strip().upper()
+    openid = payload.get("openid", "").strip()
+
+    if not order_id:
+        raise HTTPException(status_code=400, detail="订单号不能为空")
+    if not openid:
+        raise HTTPException(status_code=400, detail="请先微信登录")
+
+    # 查询挂起订单
+    from app.invite_codes import _load_orders
+    orders = _load_orders()
+    order = orders.get(order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="订单不存在")
+    if order["status"] == "paid":
+        raise HTTPException(status_code=400, detail="订单已支付完成")
+    if order["status"] == "cancelled":
+        raise HTTPException(status_code=400, detail="订单已取消")
+    if order.get("openid") and order["openid"] != openid:
+        raise HTTPException(status_code=403, detail="无权操作此订单")
+
+    plan_val = order["plan"]
+    amount = float(order["amount"])
+
+    # 调用微信支付预下单
+    success, res = await wechat_prepay_order(
+        order_id=order_id,
+        plan_val=plan_val,
+        amount_yuan=amount,
+        openid=openid
+    )
+
+    if not success:
+        raise HTTPException(status_code=500, detail=res.get("message", "微信下单失败"))
+
+    return res
+
+
+@app.post("/pay/wechat/notify")
+async def pay_wechat_notify(request: Request):
+    """
+    微信支付回调通知（真实商户支付回调，支持 V3 AES 解密验签）
+    """
+    import secrets
+    try:
+        body_bytes = await request.body()
+        body_str = body_bytes.decode("utf-8")
+        logger.info(f"[Notify] 收到微信支付通知: {body_str}")
+        
+        # 校验与解密
+        notify_data = json.loads(body_str)
+        resource = notify_data.get("resource", {})
+        algorithm = resource.get("algorithm")
+        ciphertext = resource.get("ciphertext")
+        nonce = resource.get("nonce")
+        associated_data = resource.get("associated_data")
+        
+        if algorithm != "AEAD_AES_256_GCM" or not ciphertext or not nonce:
+            logger.error(f"[Notify] 不合法的通知格式: algorithm={algorithm}")
+            return JSONResponse(status_code=400, content={"code": "FAIL", "message": "参数格式错误"})
+            
+        # 解密
+        decrypted_data = decrypt_wechat_resource(ciphertext, nonce, associated_data)
+        if not decrypted_data:
+            logger.error("[Notify] 解密失败")
+            return JSONResponse(status_code=400, content={"code": "FAIL", "message": "解密失败"})
+            
+        logger.info(f"[Notify] 解密成功内容: {decrypted_data}")
+        trade_state = decrypted_data.get("trade_state")
+        
+        if trade_state == "SUCCESS":
+            order_id = decrypted_data.get("out_trade_no")
+            transaction_id = decrypted_data.get("transaction_id")
+            
+            # 标记付款成功并自动发货升级 Plan
+            success, msg = handle_payment_success(order_id, transaction_id)
+            if success:
+                logger.info(f"[Notify] 支付成功处理完成: order_id={order_id}")
+                return {"code": "SUCCESS", "message": "成功"}
+            else:
+                return JSONResponse(status_code=500, content={"code": "FAIL", "message": msg})
+                
+        return {"code": "SUCCESS", "message": "非成功交易状态，不做处理"}
+    except Exception as e:
+        logger.error(f"[Notify] 回调处理发生异常: {e}")
+        return JSONResponse(status_code=500, content={"code": "FAIL", "message": str(e)})
+
+
+@app.post("/pay/wechat/notify-mock")
+async def pay_wechat_notify_mock(payload: dict):
+    """
+    模拟微信支付回调端点（用于本地/测试环境调试发货发码流程）
+    """
+    order_id = payload.get("order_id", "").strip().upper()
+    transaction_id = payload.get("transaction_id", f"mock_tx_{secrets.token_hex(6)}").strip()
+
+    if not order_id:
+        raise HTTPException(status_code=400, detail="订单号不能为空")
+
+    # 查询挂起订单
+    from app.invite_codes import _load_orders
+    orders = _load_orders()
+    if order_id not in orders:
+        raise HTTPException(status_code=404, detail="订单不存在")
+
+    # 标记付款成功并自动发货升级 Plan
+    success, msg = handle_payment_success(order_id, transaction_id)
+    if not success:
+        raise HTTPException(status_code=500, detail=msg)
+
+    return {"success": True, "message": msg, "order_id": order_id, "transaction_id": transaction_id}
 
 
 

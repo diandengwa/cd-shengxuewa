@@ -45,6 +45,9 @@ STRONG_SIGNALS = {
     "随迁": ScenarioType.TRANSFER,
     "随迁子女": ScenarioType.TRANSFER,
     "初升高": ScenarioType.MIDDLE_SCHOOL_EXAM,
+    "划片变化": ScenarioType.DISTRICTING_COMPARISON,
+    "划片差异": ScenarioType.DISTRICTING_COMPARISON,
+    "学区划片": ScenarioType.DISTRICTING_COMPARISON,
 }
 
 COMBO_RULES = {
@@ -206,6 +209,7 @@ SCENARIO_WIKI_KEYWORDS = {
     ScenarioType.KINDERGARTEN_TO_PRIMARY: ["幼升小", "小学入学", "幼儿园", "义务教育", "小学入学", "划片", "报名", "适龄儿童", "录取", "片区"],
     ScenarioType.TRANSFER: ["随迁", "居住证", "社保", "义务教育"],
     ScenarioType.MIDDLE_SCHOOL_EXAM: ["中考", "高中", "指标到校", "录取分数线", "录取", "分数", "普高线", "成都中考"],
+    ScenarioType.DISTRICTING_COMPARISON: ["划片", "分片", "对口", "学区", "入学范围"],
 }
 
 # 场景→排除关键词（不应出现在参考来源中的）
@@ -214,6 +218,7 @@ SCENARIO_EXCLUDE_KEYWORDS = {
     ScenarioType.KINDERGARTEN_TO_PRIMARY: ["中考", "高中阶段", "初中"],
     ScenarioType.TRANSFER: ["中考", "高中阶段"],
     ScenarioType.MIDDLE_SCHOOL_EXAM: ["幼儿园", "幼升小"],
+    ScenarioType.DISTRICTING_COMPARISON: ["中考", "高中"],
 }
 
 
