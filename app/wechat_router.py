@@ -21,7 +21,28 @@ logger = logging.getLogger("k12_rocket.wechat_router")
 
 router = APIRouter(prefix="/wechat", tags=["wechat"])
 
-_pending_states: dict = {}
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).parent.parent
+DATA_DIR = PROJECT_ROOT / "data"
+STATES_FILE = DATA_DIR / "pending_states.json"
+
+def _load_states() -> dict:
+    if not STATES_FILE.exists():
+        return {}
+    try:
+        with open(STATES_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _save_states(states: dict):
+    DATA_DIR.mkdir(exist_ok=True)
+    try:
+        with open(STATES_FILE, 'w', encoding='utf-8') as f:
+            json.dump(states, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
 
 
 # ============================================================
@@ -47,13 +68,15 @@ async def wechat_token_verify(
 @router.get("/auth")
 async def wechat_auth(return_to: str = Query("/")):
     state = secrets.token_urlsafe(16)
-    _pending_states[state] = {"created_at": time.time(), "return_to": return_to}
+    states = _load_states()
+    states[state] = {"created_at": time.time(), "return_to": return_to}
 
     # 清理过期state
     now = time.time()
-    expired = [k for k, v in _pending_states.items() if now - v["created_at"] > 600]
+    expired = [k for k, v in states.items() if now - v["created_at"] > 600]
     for k in expired:
-        del _pending_states[k]
+        del states[k]
+    _save_states(states)
 
     auth_url = build_oauth_url(state=state, scope="snsapi_base")
     return RedirectResponse(url=auth_url)
@@ -61,9 +84,12 @@ async def wechat_auth(return_to: str = Query("/")):
 
 @router.get("/callback")
 async def wechat_callback(code: str = Query(...), state: str = Query(...)):
-    state_info = _pending_states.pop(state, None)
+    states = _load_states()
+    state_info = states.pop(state, None)
+    _save_states(states)
     if not state_info:
         return HTMLResponse("<html><body><h3>授权已过期，请重新进入</h3><p><a href='/'>返回首页</a></p></body></html>", status_code=400)
+
 
     return_to = state_info.get("return_to", "/")
     result = exchange_code_for_openid(code)
@@ -119,12 +145,25 @@ async def update_profile(request: Request):
         if not openid:
             raise HTTPException(status_code=400, detail="需要openid")
 
+        # 鉴权校验：防篡改他人画像
+        k12_uid = request.cookies.get("k12_uid")
+        if not k12_uid:
+            raise HTTPException(status_code=401, detail="未登录或Cookie已失效")
+            
+        import hashlib
+        expected_hash = hashlib.sha256(openid.encode()).hexdigest()[:16]
+        if k12_uid != expected_hash:
+            raise HTTPException(status_code=403, detail="无权修改该家庭画像")
+
         from .models import FamilyInfo
         family_data = body.get("family_info", {})
         family_info = FamilyInfo(**family_data)
 
         user = update_family_info(openid, family_info)
         return {"status": "ok", "family_info": user.family_info.model_dump()}
+    except HTTPException as he:
+        raise he
     except Exception as e:
         logger.error(f"[Profile] 更新失败: {e}")
         raise HTTPException(status_code=400, detail=str(e))
+

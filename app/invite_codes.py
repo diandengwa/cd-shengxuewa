@@ -20,8 +20,12 @@ DATA_DIR.mkdir(exist_ok=True)
 CODES_FILE = DATA_DIR / "invite_codes.json"
 ORDERS_FILE = DATA_DIR / "pending_orders.json"
 
-# 管理员密码（简单实现，后续可换环境变量）
-ADMIN_SECRET = os.getenv("K12_ADMIN_SECRET", "dianwa2026") if (os := __import__('os')) else "dianwa2026"
+# 管理员密码（从环境变量读取，未设置则拒绝启动以防止安全漏洞）
+import os
+ADMIN_SECRET = os.getenv("K12_ADMIN_SECRET")
+if not ADMIN_SECRET:
+    raise ValueError("CRITICAL: K12_ADMIN_SECRET environment variable is not set! Server refuses to start for security.")
+
 
 
 def _generate_code(prefix: str = "K12") -> str:

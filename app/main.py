@@ -91,15 +91,20 @@ K12_LOG_LEVEL = os.getenv("K12_LOG_LEVEL", "info").lower()
 
 
 
-cors_origins = ["*"]
+cors_origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
 
 if K12_ENV == "production":
-
     custom_origins = os.getenv("K12_CORS_ORIGINS", "")
-
     if custom_origins:
-
         cors_origins = [o.strip() for o in custom_origins.split(",")]
+    else:
+        # 生产环境下如果没配来源，默认空，不允许 * 跨域
+        logger.warning("[Security] 生产环境已禁用默认的 * CORS跨域。请设置 K12_CORS_ORIGINS 环境变量。")
+        cors_origins = []
+else:
+    # 允许通配符只在非生产调试环境
+    cors_origins = ["*"]
+
 
 
 

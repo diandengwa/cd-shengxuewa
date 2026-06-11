@@ -21,7 +21,10 @@ API_KEY = os.getenv("WECHAT_PAY_API_KEY", "")  # APIv3 密钥 (32字节)
 PRIVATE_KEY_VAL = os.getenv("WECHAT_PAY_PRIVATE_KEY", "") # 商户 API 私钥文本 (PEM)
 NOTIFY_URL = os.getenv("WECHAT_PAY_NOTIFY_URL", "")
 
-APPID = os.getenv("WECHAT_APPID", "wx4a4643885e6b8a57")
+APPID = os.getenv("WECHAT_APPID", "")
+if not APPID and not IS_MOCK_PAY:
+    logger.error("[Payment] WECHAT_APPID 环境变量未设置！在真实支付模式下将无法正常运行。")
+
 
 # 判断是否启用 Mock 模式：若没有配置证书或私钥，系统自动进入 Mock 模式运行以供测试
 IS_MOCK_PAY = (not MCH_ID or not SERIAL_NO or not API_KEY or not PRIVATE_KEY_VAL)
