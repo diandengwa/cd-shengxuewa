@@ -17,8 +17,10 @@ OPC = K12升学参谋(P0) + ADSS闲鱼矩阵(P1) + 小鹿情报局(P2)
 - 知识库不可跨流水线复用。
 - Mirror Repo 设为 Private。
 - 坚果云排除 .git 目录同步。
+- 服务器端严禁安装坚果云客户端，所有同步均通过 Git 与 rclone 执行。切勿在服务器上尝试安装或运行 nutstore.jar，这并非错误。
 
 ## 设备角色
 - 腾讯云(162.14.74.251): 主生产(K12-rocket + 虾叔cron)
 - 阿里云(8.216.39.30): 边缘(DeerFlow + SearXNG)
 - Win11: 开发中枢 + Obsidian母库
+
