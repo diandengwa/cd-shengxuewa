@@ -1,6 +1,6 @@
 """
 配额中间件 v2.0
-免费层: 5次/周 | Pro Lite: 3次深诊/月+无限问答 | Pro Max: 无限
+免费层: 5次/周 | Pro Lite: 30次深诊/月+无限问答 | Pro Max: 无限
 存储: data/users.json
 """
 
@@ -121,7 +121,7 @@ def check_quota(openid: str, action: str = "query") -> Tuple[bool, UserRecord, s
 
     elif action == "diagnose":
         if user.plan == PlanType.FREE:
-            msg = "深度诊断为Pro功能。升级Pro Lite ¥29.9/月获取3次/月深度诊断。"
+            msg = "深度诊断为Pro功能。升级Pro Lite ¥29.9/月获取30次/月深度诊断。"
             return False, user, msg
 
         elif user.plan == PlanType.LITE:
@@ -129,7 +129,7 @@ def check_quota(openid: str, action: str = "query") -> Tuple[bool, UserRecord, s
                 msg = f"Pro Lite每月30次深度诊断已用完。升级Pro Max ¥99/月获取无限诊断。"
                 return False, user, msg
             user.quota.monthly_diagnoses_used += 1
-            remaining = 3 - user.quota.monthly_diagnoses_used
+            remaining = 30 - user.quota.monthly_diagnoses_used
             update_user(user)
             return True, user, f"剩余{remaining}次深度诊断/本月"
 
