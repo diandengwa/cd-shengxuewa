@@ -27,6 +27,25 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from dotenv import load_dotenv
 load_dotenv(PROJECT_ROOT / ".env")
 
+# ============================================================
+# 日志初始化提前，避免后续配置加载时 NameError
+# ============================================================
+logs_dir = PROJECT_ROOT / "logs"
+logs_dir.mkdir(exist_ok=True)
+
+K12_LOG_LEVEL = os.getenv("K12_LOG_LEVEL", "info").lower()
+log_level_map = {"debug": logging.DEBUG, "info": logging.INFO, "warning": logging.WARNING, "error": logging.ERROR}
+log_level = log_level_map.get(K12_LOG_LEVEL, logging.INFO)
+
+logging.basicConfig(
+    level=log_level,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler(logs_dir / "app.log", encoding="utf-8"),
+    ],
+)
+logger = logging.getLogger("k12_rocket")
 
 
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -108,43 +127,8 @@ else:
 
 
 
+# 日志已被移动到文件顶部初始化，以防止 NameError
 # ============================================================
-
-# 日志
-
-# ============================================================
-
-
-
-logs_dir = PROJECT_ROOT / "logs"
-
-logs_dir.mkdir(exist_ok=True)
-
-
-
-log_level_map = {"debug": logging.DEBUG, "info": logging.INFO, "warning": logging.WARNING, "error": logging.ERROR}
-
-log_level = log_level_map.get(K12_LOG_LEVEL, logging.INFO)
-
-
-
-logging.basicConfig(
-
-    level=log_level,
-
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-
-    handlers=[
-
-        logging.StreamHandler(sys.stdout),
-
-        logging.FileHandler(logs_dir / "app.log", encoding="utf-8"),
-
-    ],
-
-)
-
-logger = logging.getLogger("k12_rocket")
 
 
 

@@ -1,0 +1,35 @@
+{
+  "K12-A8C79EFA": {
+    "code": "K12-A8C79EFA",
+    "plan": "lite",
+    "source": "manual",
+    "status": "used",
+    "created_at": "2026-06-08T21:53:20.666916",
+    "expires_at": "2026-06-18T21:53:20.665912",
+    "used_by": "test_openid_dianwa_123",
+    "used_at": "2026-06-08T21:53:20.674916",
+    "note": "测试自动生成"
+  },
+  "K12-005D54FB": {
+    "code": "K12-005D54FB",
+    "plan": "lite",
+    "source": "paid",
+    "status": "active",
+    "created_at": "2026-06-08T22:08:29.416391",
+    "expires_at": "2026-09-06T22:08:29.416391",
+    "used_by": null,
+    "used_at": null,
+    "note": "订单K12-0ADC39 微信支付流水:mock_tx_wechat_payment_99999"
+  },
+  "K12-D401429A": {
+    "code": "K12-D401429A",
+    "plan": "lite",
+    "source": "paid",
+    "status": "active",
+    "created_at": "2026-06-08T22:59:00.425864",
+    "expires_at": "2026-09-06T22:59:00.425864",
+    "used_by": null,
+    "used_at": null,
+    "note": "订单K12-B00A4C 微信支付流水:mock_tx_wechat_payment_99999"
+  }
+}

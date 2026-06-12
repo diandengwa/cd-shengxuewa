@@ -1,0 +1,68 @@
+{
+  "K12-9E7FC4": {
+    "order_id": "K12-9E7FC4",
+    "plan": "lite",
+    "amount": "29.9",
+    "openid": "test_openid_pay_888",
+    "status": "pending",
+    "created_at": "2026-06-08T22:07:43.339716",
+    "paid_at": null,
+    "invite_code": null,
+    "note": ""
+  },
+  "K12-0ADC39": {
+    "order_id": "K12-0ADC39",
+    "plan": "lite",
+    "amount": "29.9",
+    "openid": "test_openid_pay_888",
+    "status": "paid",
+    "created_at": "2026-06-08T22:08:29.386969",
+    "paid_at": "2026-06-08T22:08:29.431909",
+    "invite_code": "K12-005D54FB",
+    "note": "微信支付流水:mock_tx_wechat_payment_99999"
+  },
+  "K12-DF2BD5": {
+    "order_id": "K12-DF2BD5",
+    "plan": "lite",
+    "amount": "29.9",
+    "openid": "test_openid_pay_888",
+    "status": "pending",
+    "created_at": "2026-06-08T22:42:56.152053",
+    "paid_at": null,
+    "invite_code": null,
+    "note": ""
+  },
+  "K12-7A3682": {
+    "order_id": "K12-7A3682",
+    "plan": "lite",
+    "amount": "29.9",
+    "openid": "test_openid_pay_888",
+    "status": "pending",
+    "created_at": "2026-06-08T22:44:36.558652",
+    "paid_at": null,
+    "invite_code": null,
+    "note": ""
+  },
+  "K12-0D0CD2": {
+    "order_id": "K12-0D0CD2",
+    "plan": "lite",
+    "amount": "29.9",
+    "openid": "test_openid_pay_888",
+    "status": "pending",
+    "created_at": "2026-06-08T22:56:13.818763",
+    "paid_at": null,
+    "invite_code": null,
+    "note": ""
+  },
+  "K12-B00A4C": {
+    "order_id": "K12-B00A4C",
+    "plan": "lite",
+    "amount": "29.9",
+    "openid": "test_openid_pay_888",
+    "status": "paid",
+    "created_at": "2026-06-08T22:58:59.662532",
+    "paid_at": "2026-06-08T22:59:00.451866",
+    "invite_code": "K12-D401429A",
+    "note": "微信支付流水:mock_tx_wechat_payment_99999"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "monthly_quota_tokens": 1000000,
+  "current_cycle": "6月上旬",
+  "current_usage_tokens": 150000,
+  "alert_threshold_percent": 80,
+  "limit_threshold_percent": 100,
+  "last_updated": "2026-06-12T09:00:00+08:00"
+}

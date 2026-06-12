@@ -1,0 +1,24 @@
+{
+  "project": "PR #16 合并归档",
+  "task_slug": "pr-16-merge",
+  "updated_at": "2026-06-01T07:51:42.9774815+08:00",
+  "current_goal": "将 PR #16 合并到 main 并保存恢复上下文",
+  "open_tasks": [],
+  "done": [
+    "确认 PR #16 对应的功能分支 head SHA 为 1a4d3d5ea9b08c94308bb27d70c7a9cba1f27621",
+    "获取远端最新 refs",
+    "在本地完成合并并验证 merge commit",
+    "将合并结果推送到远端 main",
+    "确认远端 main 已更新到 71174caf49f3cf5a382ff865ba3021fcf06fa410",
+    "将本地工作区切回 feature/mvp-xiaoshengchu"
+  ],
+  "risks": [
+    "仓库远端提示已迁移到 git@github.com:diandengwa/cd-shengxuewa.git",
+    "GitHub connector 对 tangshaowan/cd-shengxuewa 的查询在会话中返回 not found",
+    "本地 gh auth status 报告 token 无效"
+  ],
+  "notes": [
+    "PR #16 之前被确认处于 OPEN 状态，且包含所有改动。",
+    "本次合并通过 merge commit 完成，而不是重新提交新的功能改动。"
+  ]
+}

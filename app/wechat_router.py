@@ -41,8 +41,8 @@ def _save_states(states: dict):
     try:
         with open(STATES_FILE, 'w', encoding='utf-8') as f:
             json.dump(states, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Failed to save states: {e}")
 
 
 # ============================================================
