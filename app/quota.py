@@ -10,31 +10,12 @@ from pathlib import Path
 from typing import Optional, Tuple
 from datetime import datetime, timedelta
 from .models import UserRecord, PlanType, QuotaInfo, FamilyInfo
+from .database import get_db, init_db
 
 logger = logging.getLogger("k12_rocket")
 
-PROJECT_ROOT = Path(__file__).parent.parent
-DATA_DIR = PROJECT_ROOT / "data"
-DATA_DIR.mkdir(exist_ok=True)
-USERS_FILE = DATA_DIR / "users.json"
-
-
-def _load_users() -> dict:
-    """加载用户数据"""
-    if not USERS_FILE.exists():
-        return {}
-    try:
-        with open(USERS_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except (json.JSONDecodeError, IOError):
-        return {}
-
-
-def _save_users(users: dict):
-    """保存用户数据"""
-    USERS_FILE.parent.mkdir(exist_ok=True)
-    with open(USERS_FILE, 'w', encoding='utf-8') as f:
-        json.dump(users, f, ensure_ascii=False, indent=2)
+# 初始化数据库
+init_db()
 
 
 def _get_week_start() -> str:
@@ -51,9 +32,15 @@ def _get_month_start() -> str:
 
 def get_or_create_user(openid: str) -> UserRecord:
     """获取或创建用户"""
-    users = _load_users()
-    if openid in users:
-        data = users[openid]
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT data FROM users WHERE openid = ?", (openid,))
+    row = cursor.fetchone()
+    
+    if row:
+        conn.close()
+        # 反序列化
+        data = json.loads(row["data"])
         return UserRecord(**data)
 
     # 新用户
@@ -69,17 +56,29 @@ def get_or_create_user(openid: str) -> UserRecord:
         ),
         family_info=FamilyInfo(),
     )
-    users[openid] = user.model_dump()
-    _save_users(users)
+    
+    # 写入数据库
+    cursor.execute(
+        "INSERT INTO users (openid, data, last_active) VALUES (?, ?, ?)",
+        (openid, user.model_dump_json(), user.last_active)
+    )
+    conn.commit()
+    conn.close()
     logger.info(f"[Quota] 新用户注册: {openid[:8]}...")
     return user
 
 
 def update_user(user: UserRecord):
     """更新用户数据"""
-    users = _load_users()
-    users[user.openid] = user.model_dump()
-    _save_users(users)
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT OR REPLACE INTO users (openid, data, last_active) VALUES (?, ?, ?)",
+        (user.openid, user.model_dump_json(), user.last_active)
+    )
+    conn.commit()
+    conn.close()
+
 
 
 def check_quota(openid: str, action: str = "query") -> Tuple[bool, UserRecord, str]:
