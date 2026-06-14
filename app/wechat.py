@@ -12,12 +12,20 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import quote
 
+import os
+import logging
+
 logger = logging.getLogger("k12_rocket.wechat")
 
 # 配置
-WECHAT_APPID = os.getenv("WECHAT_APPID", "wx4a4643885e6b8a57") if (os := __import__('os')) else "wx4a4643885e6b8a57"
-WECHAT_SECRET = os.getenv("WECHAT_SECRET", "c1802d103944ec7c9a5b88ec406eb991") if (os := __import__('os')) else "c1802d103944ec7c9a5b88ec406eb991"
-WECHAT_TOKEN = os.getenv("WECHAT_TOKEN", "aecbcd1ca09fb7e316dd4ca5186808c4") if (os := __import__('os')) else "aecbcd1ca09fb7e316dd4ca5186808c4"
+WECHAT_APPID = os.getenv("WECHAT_APPID")
+WECHAT_SECRET = os.getenv("WECHAT_SECRET")
+WECHAT_TOKEN = os.getenv("WECHAT_TOKEN")
+
+if not all([WECHAT_APPID, WECHAT_SECRET, WECHAT_TOKEN]):
+    raise ValueError("CRITICAL: WECHAT_APPID, WECHAT_SECRET, and WECHAT_TOKEN environment variables must be set! Server refuses to start for security.")
+
+
 
 BASE_URL = os.getenv("BASE_URL", "https://cdk12edu.online") if (os := __import__('os')) else "https://cdk12edu.online"
 OAUTH_REDIRECT_PATH = "/api/wechat/callback"

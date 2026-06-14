@@ -59,9 +59,18 @@ def decrypt_wechat_resource(ciphertext: str, nonce: str, associated_data: str) -
 
 
 def _load_private_key():
-    """从文本加载商户私钥"""
+    """从文本或文件路径加载商户私钥"""
     try:
-        pem_data = PRIVATE_KEY_VAL.replace("\\n", "\n").encode("utf-8")
+        pem_content = PRIVATE_KEY_VAL
+        # 如果是现有文件路径，则读取文件内容
+        if pem_content and (pem_content.startswith("/") or pem_content.endswith(".pem") or os.path.exists(pem_content)):
+            try:
+                with open(pem_content, 'r', encoding='utf-8') as f:
+                    pem_content = f.read()
+            except IOError as e:
+                logger.error(f"[Payment] 无法从文件 {pem_content} 读取私钥: {e}")
+                
+        pem_data = pem_content.replace("\\n", "\n").encode("utf-8")
         if not pem_data.startswith(b"-----BEGIN PRIVATE KEY-----"):
             # 如果没有包含头部，自动补齐
             pem_data = b"-----BEGIN PRIVATE KEY-----\n" + pem_data + b"\n-----END PRIVATE KEY-----"

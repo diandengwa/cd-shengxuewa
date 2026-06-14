@@ -1,4 +1,4 @@
-﻿name: Deploy OPC Content Factory
+name: Deploy OPC Content Factory
 
 on:
   push:
@@ -87,22 +87,24 @@ jobs:
           docker rmi ${{ env.IMAGE_NAME }}:latest || true
           
           # Build new image
-          echo "馃敤 Building new image..."
+          echo "🏗️ Building new image..."
           docker build -t ${{ env.IMAGE_NAME }}:latest .
           
           # Start new container
-          echo "馃殌 Starting new container..."
+          echo "🚀 Starting new container..."
           docker run -d \
             --name ${{ env.IMAGE_NAME }} \
             --restart unless-stopped \
-            -v /root/opc-agent-knowledge/0-raw/archive/knowledge-base:/app/knowledge-base:ro \
+            --env-file /root/cd-shengxuewa/.env \
+            -e KNOWLEDGE_BASE_DIR="/app/opc-agent-knowledge" \
+            -e DEEPSEEK_API_KEY="${{ secrets.DEEPSEEK_API_KEY }}" \
+            -e LOG_LEVEL="INFO" \
+            -v /root/opc-agent-knowledge:/app/opc-agent-knowledge:ro \
             -v /root/cd-shengxuewa/logs:/app/logs \
             -v /root/cd-shengxuewa/drafts:/app/drafts \
             -v /root/cd-shengxuewa/reviewed:/app/reviewed \
             -v /root/cd-shengxuewa/ready-to-publish:/app/ready-to-publish \
-            -e DEEPSEEK_API_KEY="${{ secrets.DEEPSEEK_API_KEY }}" \
-            -e LOG_LEVEL="INFO" \
-            --health-cmd "python /app/scripts/health_check.py" \
+            --health-cmd "curl -f http://localhost:8000/health || exit 1" \
             --health-interval 5m \
             --health-timeout 30s \
             --health-retries 3 \
@@ -130,8 +132,8 @@ jobs:
         command_timeout: 2m
         script: |
           # Check container health
-          echo "馃彞 Running health check..."
-          docker exec ${{ env.IMAGE_NAME }} python /app/scripts/health_check.py
+          echo "Running health check..."
+          docker exec ${{ env.IMAGE_NAME }} curl -f http://localhost:8000/health
           
           # Check container logs
           echo "馃搵 Recent logs:"
