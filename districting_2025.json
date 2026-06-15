@@ -1,0 +1,215 @@
+{
+  "year": 2025,
+  "schools": [
+    {
+      "school_name": "成都市泡桐树小学",
+      "district": "青羊区",
+      "school_level": "小学",
+      "coverage_area": "泡桐树街、实业街、支矶石街、小通巷、奎星楼街等",
+      "source": "2025年成都市教育局划片公告"
+    },
+    {
+      "school_name": "成都市实验小学",
+      "district": "青羊区",
+      "school_level": "小学",
+      "coverage_area": "西御河沿街、西半截街、西顺城街、太升南路等",
+      "source": "2025年成都市教育局划片公告"
+    },
+    {
+      "school_name": "成都市树德小学",
+      "district": "青羊区",
+      "school_level": "小学",
+      "coverage_area": "树德里、八宝街、青龙街、过街楼街等",
+      "source": "2025年成都市教育局划片公告"
+    },
+    {
+      "school_name": "成都市草堂小学",
+      "district": "青羊区",
+      "school_level": "小学",
+      "coverage_area": "草堂北路、草堂路、浣花溪公园周边等",
+      "source": "2025年成都市教育局划片公告"
+    },
+    {
+      "school_name": "成都市金沙小学",
+      "district": "青羊区",
+      "school_level": "小学",
+      "coverage_area": "金沙遗址路、金凤路、蜀辉路、同济大道等",
+      "source": "2025年成都市教育局划片公告"
+    },
+    {
+      "school_name": "成都市青羊实验中学",
+      "district": "青羊区",
+      "school_level": "初中",
+      "coverage_area": "青羊区部分街道",
+      "source": "2025年成都市教育局划片公告"
+    },
+    {
+      "school_name": "成都市树德实验中学",
+      "district": "青羊区",
+      "school_level": "初中",
+      "coverage_area": "青羊区部分街道",
+      "source": "2025年成都市教育局划片公告"
+    },
+    {
+      "school_name": "成都市石室联合中学",
+      "district": "青羊区",
+      "school_level": "初中",
+      "coverage_area": "青羊区部分街道",
+      "source": "2025年成都市教育局划片公告"
+    },
+    {
+      "school_name": "成都市龙江路小学",
+      "district": "武侯区",
+      "school_level": "小学",
+      "coverage_area": "龙江路、新南路、林荫街、科华北路等",
+      "source": "2025年成都市教育局划片公告"
+    },
+    {
+      "school_name": "成都市桐梓林小学",
+      "district": "武侯区",
+      "school_level": "小学",
+      "coverage_area": "桐梓林路、桐梓林北路、航空路、长寿路等",
+      "source": "2025年成都市教育局划片公告"
+    },
+    {
+      "school_name": "成都市玉林小学",
+      "district": "武侯区",
+      "school_level": "小学",
+      "coverage_area": "玉林街、玉林西路、倪家桥路、人民南路四段等",
+      "source": "2025年成都市教育局划片公告"
+    },
+    {
+      "school_name": "成都市川大附小",
+      "district": "武侯区",
+      "school_level": "小学",
+      "coverage_area": "四川大学望江校区周边",
+      "source": "2025年成都市教育局划片公告"
+    },
+    {
+      "school_name": "成都市棕北中学",
+      "district": "武侯区",
+      "school_level": "初中",
+      "coverage_area": "武侯区部分街道",
+      "source": "2025年成都市教育局划片公告"
+    },
+    {
+      "school_name": "成都市石室双楠实验学校",
+      "district": "武侯区",
+      "school_level": "初中",
+      "coverage_area": "武侯区双楠片区",
+      "source": "2025年成都市教育局划片公告"
+    },
+    {
+      "school_name": "成都市七中育才学校",
+      "district": "锦江区",
+      "school_level": "初中",
+      "coverage_area": "锦江区部分街道",
+      "source": "2025年成都市教育局划片公告"
+    },
+    {
+      "school_name": "成都市盐道街小学",
+      "district": "锦江区",
+      "school_level": "小学",
+      "coverage_area": "盐道街、红星路、大慈寺路、东大街等",
+      "source": "2025年成都市教育局划片公告"
+    },
+    {
+      "school_name": "成都市天涯石小学",
+      "district": "锦江区",
+      "school_level": "小学",
+      "coverage_area": "天涯石街、福字街、庆云街、书院南街等",
+      "source": "2025年成都市教育局划片公告"
+    },
+    {
+      "school_name": "成都市成华小学",
+      "district": "成华区",
+      "school_level": "小学",
+      "coverage_area": "成华区部分街道",
+      "source": "2025年成都市教育局划片公告"
+    },
+    {
+      "school_name": "成都市双林小学",
+      "district": "成华区",
+      "school_level": "小学",
+      "coverage_area": "双林路、双林中横路、水碾河路等",
+      "source": "2025年成都市教育局划片公告"
+    },
+    {
+      "school_name": "成都市列五中学",
+      "district": "成华区",
+      "school_level": "初中",
+      "coverage_area": "成华区部分街道",
+      "source": "2025年成都市教育局划片公告"
+    },
+    {
+      "school_name": "成都市华西小学",
+      "district": "成华区",
+      "school_level": "小学",
+      "coverage_area": "成华区部分街道",
+      "source": "2025年成都市教育局划片公告"
+    },
+    {
+      "school_name": "成都市电子科大附属实验小学",
+      "district": "成华区",
+      "school_level": "小学",
+      "coverage_area": "电子科大周边",
+      "source": "2025年成都市教育局划片公告"
+    },
+    {
+      "school_name": "成都七中初中学校",
+      "district": "高新区",
+      "school_level": "初中",
+      "coverage_area": "高新区部分街道",
+      "source": "2025年成都市教育局划片公告"
+    },
+    {
+      "school_name": "成都石室天府中学",
+      "district": "高新区",
+      "school_level": "初中",
+      "coverage_area": "高新区部分街道",
+      "source": "2025年成都市教育局划片公告"
+    },
+    {
+      "school_name": "成都天府新区华阳中学",
+      "district": "天府新区",
+      "school_level": "初中",
+      "coverage_area": "华阳街道",
+      "source": "2025年成都市教育局划片公告"
+    },
+    {
+      "school_name": "成都市郫都区实验学校",
+      "district": "郫都区",
+      "school_level": "小学",
+      "coverage_area": "郫筒街道",
+      "source": "2025年成都市教育局划片公告"
+    },
+    {
+      "school_name": "成都市温江区实验学校",
+      "district": "温江区",
+      "school_level": "小学",
+      "coverage_area": "柳城街道",
+      "source": "2025年成都市教育局划片公告"
+    },
+    {
+      "school_name": "成都市新都一中",
+      "district": "新都区",
+      "school_level": "初中",
+      "coverage_area": "新都街道",
+      "source": "2025年成都市教育局划片公告"
+    },
+    {
+      "school_name": "成都市龙泉驿区实验小学",
+      "district": "龙泉驿区",
+      "school_level": "小学",
+      "coverage_area": "龙泉街道",
+      "source": "2025年成都市教育局划片公告"
+    },
+    {
+      "school_name": "成都市青白江区大弯中学",
+      "district": "青白江区",
+      "school_level": "初中",
+      "coverage_area": "大弯街道",
+      "source": "2025年成都市教育局划片公告"
+    }
+  ]
+}
