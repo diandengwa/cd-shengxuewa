@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>升级Pro - 点灯蛙·成都升学AI诊断</title>
+    <meta name="security-code" content="434f8b8c8c394930744d9e2ba07fd2d6">
+    <style>
+        :root {
+            --primary: #1a73e8;
+            --primary-dark: #0d47a1;
+            --primary-light: #e8f0fe;
+            --accent: #ff6d00;
+            --success: #00c853;
+            --text: #212121;
+            --text-sec: #616161;
+            --text-light: #9e9e9e;
+            --bg: #f5f7fa;
+            --card: #ffffff;
+            --border: #e0e0e0;
+            --radius: 16px;
+            --shadow: 0 2px 12px rgba(0,0,0,0.06);
+            --shadow-lg: 0 8px 32px rgba(0,0,0,0.1);
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+        }
+        .header {
+            background: linear-gradient(135deg, var(--primary-dark), var(--primary));
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        .header h1 { font-size: 22px; font-weight: 700; }
+        .header p { font-size: 14px; opacity: 0.8; margin-top: 4px; }
+        .back-link {
+            position: absolute; left: 16px; top: 22px;
+            color: white; text-decoration: none; font-size: 14px;
+        }
+
+        /* Tab switch */
+        .tabs {
+            max-width: 480px; margin: 20px auto 0; padding: 0 16px;
+            display: flex; gap: 0; background: var(--card);
+            border-radius: 12px; overflow: hidden; box-shadow: var(--shadow);
+        }
+        .tab {
+            flex: 1; padding: 14px 8px; text-align: center;
+            font-size: 15px; font-weight: 600; cursor: pointer;
+            border-bottom: 3px solid transparent;
+            transition: all 0.2s; color: var(--text-sec);
+        }
+        .tab.active {
+            color: var(--primary); border-bottom-color: var(--primary);
+            background: var(--primary-light);
+        }
+
+        /* Panels */
+        .panel { display: none; max-width: 480px; margin: 16px auto; padding: 0 16px; }
+        .panel.active { display: block; }
+
+        /* ── Panel 1: 邀请码兑换 ── */
+        .redeem-card {
+            background: var(--card); border-radius: var(--radius);
+            padding: 28px 24px; box-shadow: var(--shadow); text-align: center;
+        }
+        .redeem-icon { font-size: 56px; margin-bottom: 12px; }
+        .redeem-title { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+        .redeem-desc { font-size: 14px; color: var(--text-sec); line-height: 1.6; margin-bottom: 20px; }
+        .code-input {
+            width: 100%; max-width: 280px; padding: 14px 16px;
+            border: 2px solid var(--border); border-radius: 12px;
+            font-size: 22px; font-weight: 700; text-align: center;
+            letter-spacing: 3px; text-transform: uppercase;
+            outline: none; transition: border-color 0.2s;
+            font-family: "SF Mono", "Consolas", monospace;
+        }
+        .code-input:focus { border-color: var(--primary); }
+        .code-input::placeholder { font-size: 14px; letter-spacing: 0; font-weight: 400; color: var(--text-light); }
+        .redeem-btn {
+            display: inline-block; margin-top: 16px;
+            padding: 14px 48px; background: linear-gradient(135deg, var(--primary), #42a5f5);
+            color: white; border: none; border-radius: 28px;
+            font-size: 17px; font-weight: 700; cursor: pointer;
+            transition: transform 0.15s;
+        }
+        .redeem-btn:hover { transform: translateY(-1px); }
+        .redeem-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+        .how-to-get {
+            margin-top: 24px; text-align: left;
+            background: #f8f9fa; border-radius: 12px; padding: 16px;
+        }
+        .how-to-get h4 { font-size: 14px; font-weight: 700; margin-bottom: 8px; color: var(--text-sec); }
+        .how-to-get ol { padding-left: 20px; }
+        .how-to-get li { font-size: 13px; color: var(--text-sec); line-height: 1.8; }
+
+        /* ── Panel 2: 扫码付款 ── */
+        .pay-card {
+            background: var(--card); border-radius: var(--radius);
+            padding: 24px; box-shadow: var(--shadow);
+        }
+        .plan-select { display: flex; gap: 12px; margin-bottom: 20px; }
+        .plan-opt {
+            flex: 1; padding: 16px 12px; border: 2px solid var(--border);
+            border-radius: 14px; text-align: center; cursor: pointer;
+            transition: border-color 0.2s;
+        }
+        .plan-opt.selected { border-color: var(--primary); background: var(--primary-light); }
+        .plan-opt .name { font-size: 16px; font-weight: 700; }
+        .plan-opt .price { font-size: 24px; font-weight: 800; color: var(--primary); margin: 4px 0; }
+        .plan-opt .per { font-size: 12px; color: var(--text-light); }
+        .plan-opt .popular {
+            display: inline-block; background: var(--accent); color: white;
+            padding: 1px 8px; border-radius: 8px; font-size: 10px; font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .order-section {
+            text-align: center; padding: 16px 0;
+        }
+        .order-id-box {
+            display: inline-block; background: #fff3e0; border: 2px dashed var(--accent);
+            border-radius: 12px; padding: 12px 24px; margin: 8px 0 12px;
+        }
+        .order-id-label { font-size: 12px; color: var(--text-light); }
+        .order-id-value {
+            font-size: 26px; font-weight: 800; color: var(--accent);
+            font-family: "SF Mono", "Consolas", monospace; letter-spacing: 2px;
+        }
+        .order-tip {
+            font-size: 13px; color: var(--text-sec); line-height: 1.6; margin: 8px 0;
+        }
+        .order-tip strong { color: var(--accent); }
+
+        .qr-section { margin: 20px 0; text-align: center; }
+        .qr-img {
+            width: 200px; height: 200px; border-radius: 12px;
+            border: 1px solid var(--border); display: inline-block;
+            background: #f5f5f5;
+        }
+        .qr-note { font-size: 12px; color: var(--text-light); margin-top: 8px; }
+
+        .poll-btn {
+            display: inline-block; padding: 12px 32px;
+            background: var(--success); color: white; border: none;
+            border-radius: 24px; font-size: 15px; font-weight: 600;
+            cursor: pointer; margin-top: 12px;
+        }
+        .poll-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* ── Success state ── */
+        .success-state {
+            text-align: center; padding: 32px 16px;
+        }
+        .success-icon { font-size: 64px; margin-bottom: 12px; }
+        .success-title { font-size: 22px; font-weight: 800; color: var(--success); margin-bottom: 6px; }
+        .success-desc { font-size: 14px; color: var(--text-sec); line-height: 1.6; margin-bottom: 16px; }
+        .success-code {
+            display: inline-block; background: #e8f5e9; border-radius: 12px;
+            padding: 10px 20px; font-family: monospace; font-size: 20px;
+            font-weight: 700; color: #2e7d32; letter-spacing: 2px;
+        }
+        .back-chat-btn {
+            display: inline-block; margin-top: 20px;
+            padding: 12px 32px; background: var(--primary); color: white;
+            border: none; border-radius: 24px; font-size: 15px; font-weight: 600;
+            cursor: pointer; text-decoration: none;
+        }
+
+        /* FAQ */
+        .faq {
+            max-width: 480px; margin: 24px auto; padding: 0 16px 40px;
+        }
+        .faq h3 { font-size: 16px; font-weight: 700; margin-bottom: 12px; }
+        .faq-item {
+            background: var(--card); border-radius: 10px;
+            padding: 14px 16px; margin-bottom: 8px; box-shadow: var(--shadow);
+        }
+        .faq-q { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+        .faq-a { font-size: 13px; color: var(--text-sec); line-height: 1.6; }
+
+        /* Toast */
+        .toast {
+            position: fixed; bottom: 24px; left: 50%;
+            transform: translateX(-50%) translateY(80px);
+            background: #333; color: white; padding: 12px 24px;
+            border-radius: 24px; font-size: 14px; z-index: 2000;
+            transition: transform 0.3s; white-space: nowrap;
+        }
+        .toast.show { transform: translateX(-50%) translateY(0); }
+
+        /* Spinner */
+        .spinner {
+            display: inline-block; width: 18px; height: 18px;
+            border: 2px solid rgba(255,255,255,0.3); border-top-color: white;
+            border-radius: 50%; animation: spin 0.6s linear infinite;
+            vertical-align: middle; margin-right: 6px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <a href="/chat" class="back-link">← 返回</a>
+    <h1>🐸 升级Pro版</h1>
+    <p>内测期 · 邀请码激活</p>
+</div>
+
+<!-- Tab switch -->
+<div class="tabs">
+    <div class="tab active" onclick="switchTab('redeem')">🔑 邀请码</div>
+    <div class="tab" onclick="switchTab('pay')">💳 扫码付款</div>
+</div>
+
+<!-- ── Panel: 邀请码兑换 ── -->
+<div class="panel active" id="panelRedeem">
+    <div class="redeem-card">
+        <div class="redeem-icon">🎫</div>
+        <div class="redeem-title">输入邀请码</div>
+        <div class="redeem-desc">内测期间，通过邀请码解锁Pro功能</div>
+        <input class="code-input" id="codeInput" type="text" placeholder="K12-XXXXXXXX" maxlength="12" autocomplete="off">
+        <br>
+        <button class="redeem-btn" id="redeemBtn" onclick="handleRedeem()">激活</button>
+
+        <div class="how-to-get">
+            <h4>📋 如何获取邀请码？</h4>
+<div style="margin:12px 0;padding:12px 16px;background:#f0f9ff;border-radius:8px;font-size:13px;line-height:1.8;">
+  <p style="font-weight:600;margin:0 0 6px 0;">💡 为什么成都家长选择点灯蛙？</p>
+  <div>✅ 不是政策搬运工 —— 结合家庭情况给个性化建议</div>
+  <div>✅ 不是黑盒 —— 8维报告每句话都有政策依据</div>
+  <div>✅ 不止诊断一次 —— 6个月内可追踪结果、动态调整</div>
+  <div>✅ 基于成都教育局官方政策数据</div>
+</div>
+<div style="margin:8px 0 4px 0;font-weight:600;font-size:14px;">方式一：加入社群，免费领取</div>
+<div style="margin:4px 0;font-size:13px;">搜索微信号：<strong>tangshaowan</strong>，申请加入升学群后@群主，免费领取邀请码</div>
+<div style="font-size:12px;color:#888;margin:2px 0 8px 0;">💬 群内每日分享独家政策解读 & 摇号数据分析，免费码群内不定期发放</div>
+<div style="margin:8px 0 4px 0;font-weight:600;font-size:14px;">方式二：扫码付款，加微信领码
+<div style="margin:4px 0 8px 0;font-size:13px;line-height:1.8;">
+  ① 点击上方「💳 扫码付款」标签，扫码支付<br>
+  ② <strong>截图付款凭证，加微信 tangshaowan 发送截图</strong><br>
+  ③ 核实后手动发邀请码（通常2小时内，服务时间 9:00-22:00）
+</div></div>
+
+            <ol>
+                
+                
+            </ol>
+        </div>
+    </div>
+</div>
+
+<!-- ── Panel: 扫码付款 ── -->
+<div class="panel" id="panelPay">
+    <div class="pay-card" id="payCard">
+        <!-- Step 1: 选择套餐 + 生成订单 -->
+        <div id="payStep1">
+            <div class="plan-select">
+                <div class="plan-opt selected" data-plan="lite" onclick="selectPayPlan('lite')">
+                    <div class="popular">最受欢迎</div>
+                    <div class="name">Pro Lite</div>
+                    <div class="price">¥29.9</div>
+                    <div class="per">/月</div>
+                </div>
+                <div class="plan-opt" data-plan="max" onclick="selectPayPlan('max')">
+                    <div class="name">Pro Max</div>
+                    <div class="price">¥99</div>
+                    <div class="per">/月</div>
+                </div>
+            </div>
+
+            <div style="text-align:center;">
+                <button class="redeem-btn" onclick="createOrder()">生成付款订单</button>
+            </div>
+        </div>
+
+        <!-- Step 2: 展示订单号 + 收款码 -->
+        <div id="payStep2" style="display:none;">
+            <div class="order-section">
+                <div class="order-id-label">您的订单号</div>
+                <div class="order-id-box">
+                    <div class="order-id-value" id="orderIdDisplay">K12------</div>
+                </div>
+                <div class="order-tip">
+                    请扫码付款，<strong>付款备注填写上方订单号</strong><br>
+                    我们核实后将自动生成邀请码
+                </div>
+            </div>
+
+            <div class="qr-section">
+                <img class="qr-img" id="payQR" src="/static/pay-qr.png" alt="收款码"
+                     onerror="this.style.display='none'; document.getElementById('qrFallback').style.display='block';">
+                <div id="qrFallback" style="display:none; text-align:center; padding:20px;">
+                    <div style="font-size:48px;">🐸</div>
+                    <div style="font-size:14px; color:var(--text-sec); margin-top:8px;">收款码加载失败</div>
+                    <div style="font-size:13px; color:var(--text-light);">请添加微信客服获取收款码</div>
+                </div>
+                <div class="qr-note">微信扫码 · 备注订单号</div>
+            </div>
+
+            <div style="text-align:center;">
+                <button class="poll-btn" id="pollBtn" onclick="pollOrder()">我已付款，查询状态</button>
+            </div>
+        </div>
+
+        <!-- Step 3: 成功 -->
+        <div id="payStep3" style="display:none;">
+            <div class="success-state">
+                <div class="success-icon">🎉</div>
+                <div class="success-title">付款已确认！</div>
+                <div class="success-desc">您的邀请码已生成，请复制后在「邀请码」页面激活</div>
+                <div class="success-code" id="paidCode"></div>
+                <br>
+                <button class="back-chat-btn" onclick="useCodeNow()">立即激活</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Success overlay (邀请码兑换成功) ── -->
+<div id="redeemSuccess" style="display:none;">
+    <div class="pay-card">
+        <div class="success-state">
+            <div class="success-icon">✅</div>
+            <div class="success-title">激活成功！</div>
+            <div class="success-desc" id="redeemSuccessDesc">已开通Pro Lite</div>
+            <a class="back-chat-btn" href="/chat">开始使用</a>
+        </div>
+    </div>
+</div>
+
+<!-- FAQ -->
+<div class="faq">
+    <h3>❓ 常见问题</h3>
+    <div class="faq-item">
+        <div class="faq-q">免费版和Pro版有什么区别？</div>
+        <div class="faq-a">免费版提供Step1情况理解+基础8段输出，每周5次。Pro版解锁灰色地带判断、竞争烈度评估、个性化时间线规划和补救方案。</div>
+    </div>
+    <div class="faq-item">
+        <div class="faq-q">邀请码有效期多久？</div>
+        <div class="faq-a">邀请码有效期为90天，请在有效期内激活。一个码只能使用一次。</div>
+    </div>
+    <div class="faq-item">
+        <div class="faq-q">付款后多久能收到邀请码？</div>
+        <div class="faq-a">
+          加微信 <strong>tangshaowan</strong> 发送付款截图，我们核实后<strong>2小时内</strong>手动发送邀请码（服务时间 9:00-22:00）。<br>
+          <span style="font-size:12px;color:#888;">💡 微信支付商户号开通后将实现自动发货，敬请期待。</span>
+        </div>
+    </div>
+    <div class="faq-item">
+        <div class="faq-q">付款备注忘了写订单号怎么办？</div>
+        <div class="faq-a">
+          无需订单号，<strong>加微信 tangshaowan 发送付款截图即可</strong>，我们会手动核对。
+        </div>
+    </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+const API = window.location.origin + '/api';
+let openid = localStorage.getItem('k12_uid') || localStorage.getItem('k12_device_id') || '';
+        // Auto-generate device ID for non-WeChat users
+        if (!openid) {
+            openid = 'device_' + Date.now().toString(36) + '_' + Math.random().toString(36).substr(2, 8);
+            localStorage.setItem('k12_device_id', openid);
+        }
+let currentPlan = localStorage.getItem('k12_plan') || 'free';
+let payPlan = 'lite';
+let orderId = '';
+let pollCount = 0;
+
+// If already pro, show message
+if (currentPlan !== 'free') {
+    // Could show "already upgraded" but let them see the page anyway
+}
+
+// ── Tab switch ──
+function switchTab(tab) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    if (tab === 'redeem') {
+        document.querySelector('.tab:first-child').classList.add('active');
+        document.getElementById('panelRedeem').classList.add('active');
+    } else {
+        document.querySelector('.tab:last-child').classList.add('active');
+        document.getElementById('panelPay').classList.add('active');
+    }
+}
+
+// ── 邀请码兑换 ──
+async function handleRedeem() {
+    const code = document.getElementById('codeInput').value.trim().toUpperCase();
+    if (!code) { showToast('请输入邀请码'); return; }
+
+    const btn = document.getElementById('redeemBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>验证中...';
+
+    try {
+        const res = await fetch(`${API}/invite/redeem`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code, openid }),
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            localStorage.setItem('k12_plan', data.plan || 'lite');
+            document.getElementById('panelRedeem').innerHTML =
+                document.getElementById('redeemSuccess').innerHTML;
+            document.getElementById('redeemSuccessDesc').textContent =
+                `已开通${data.plan === 'max' ? 'Pro Max' : 'Pro Lite'}版，享受完整四步裁决引擎`;
+        } else {
+            showToast(data.message || '兑换失败');
+            btn.disabled = false;
+            btn.textContent = '激活';
+        }
+    } catch (e) {
+        showToast('网络错误，请重试');
+        btn.disabled = false;
+        btn.textContent = '激活';
+    }
+}
+
+// Enter key support
+document.getElementById('codeInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') handleRedeem();
+});
+
+// ── 扫码付款 ──
+function selectPayPlan(plan) {
+    payPlan = plan;
+    document.querySelectorAll('.plan-opt').forEach(o => o.classList.remove('selected'));
+    document.querySelector(`.plan-opt[data-plan="${plan}"]`).classList.add('selected');
+}
+
+async function createOrder() {
+    try {
+        const res = await fetch(`${API}/order/create`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ plan: payPlan, openid }),
+        });
+        const data = await res.json();
+
+        orderId = data.order_id;
+        document.getElementById('orderIdDisplay').textContent = orderId;
+        document.getElementById('payStep1').style.display = 'none';
+        document.getElementById('payStep2').style.display = 'block';
+
+        // Copy order ID to clipboard
+        try {
+            await navigator.clipboard.writeText(orderId);
+            showToast('订单号已复制: ' + orderId);
+        } catch {}
+    } catch (e) {
+        showToast('创建订单失败，请重试');
+    }
+}
+
+async function pollOrder() {
+    if (!orderId) return;
+
+    const btn = document.getElementById('pollBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>查询中...';
+    pollCount++;
+
+    try {
+        const res = await fetch(`${API}/order/check?order_id=${orderId}&openid=${openid}`);
+        const data = await res.json();
+
+        if (data.status === 'paid' && data.invite_code) {
+            // 付款已确认！
+            document.getElementById('payStep2').style.display = 'none';
+            document.getElementById('payStep3').style.display = 'block';
+            document.getElementById('paidCode').textContent = data.invite_code;
+
+            // 如果自动兑换了
+            if (data.auto_redeemed) {
+                localStorage.setItem('k12_plan', data.plan || payPlan);
+            }
+        } else if (data.status === 'pending') {
+            if (pollCount >= 3) {
+                showToast('暂未确认，请稍后再试或联系客服');
+            } else {
+                showToast('付款尚未确认，请稍后再查');
+            }
+            btn.disabled = false;
+            btn.textContent = '我已付款，查询状态';
+        }
+    } catch (e) {
+        showToast('查询失败，请重试');
+        btn.disabled = false;
+        btn.textContent = '我已付款，查询状态';
+    }
+}
+
+function useCodeNow() {
+    const code = document.getElementById('paidCode').textContent;
+    document.getElementById('codeInput').value = code;
+    switchTab('redeem');
+    // Auto redeem
+    setTimeout(() => handleRedeem(), 300);
+}
+
+// ── Toast ──
+function showToast(msg) {
+    const toast = document.getElementById('toast');
+    toast.textContent = msg;
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 3000);
+}
+
+// ── Init: check URL params ──
+const params = new URLSearchParams(window.location.search);
+const planParam = params.get('plan');
+const codeParam = params.get('code');
+
+if (planParam === 'lite' || planParam === 'max') {
+    selectPayPlan(planParam);
+    switchTab('pay');
+}
+if (codeParam) {
+    document.getElementById('codeInput').value = codeParam.toUpperCase();
+    switchTab('redeem');
+}
+</script>
+<div style="text-align:center;padding:10px;font-size:12px;color:#999;"><a href="https://beian.miit.gov.cn/" target="_blank" rel="nofollow" style="color:#999;text-decoration:none;">蜀ICP备2026032729号</a> <!-- 公安联网备案数据码：434f8b8c8c394930744d9e2ba07fd2d6 --></div>
+</body>
+</html>

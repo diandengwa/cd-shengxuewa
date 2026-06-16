@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>点灯蛙·成都K12升学参谋</title>
+    <meta name="security-code" content="434f8b8c8c394930744d9e2ba07fd2d6">
+    <style>
+        :root {
+            --primary: #1a73e8;
+            --primary-light: #e8f0fe;
+            --danger: #f44336;
+            --warning: #ff9800;
+            --success: #4caf50;
+            --gray-100: #f5f5f5;
+            --gray-200: #e0e0e0;
+            --gray-500: #9e9e9e;
+            --gray-700: #616161;
+            --gray-900: #212121;
+            --radius: 12px;
+            --shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+            background: var(--gray-100);
+            color: var(--gray-900);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, #1a73e8 0%, #0d47a1 100%);
+            color: white;
+            padding: 16px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            z-index: 10;
+        }
+        .header-left { display: flex; align-items: center; gap: 12px; }
+        .logo {
+            width: 36px; height: 36px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 20px;
+        }
+        .header h1 { font-size: 18px; font-weight: 600; }
+        .header .subtitle { font-size: 12px; opacity: 0.8; }
+        .plan-badge {
+            padding: 4px 12px;
+            border-radius: 16px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .plan-free { background: rgba(255,255,255,0.2); }
+        .plan-pro { background: #ffc107; color: #333; }
+
+        /* Chat area */
+        .chat-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+            max-width: 768px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        /* Messages */
+        .msg { margin-bottom: 16px; animation: fadeIn 0.3s ease; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+        .msg-user {
+            display: flex;
+            justify-content: flex-end;
+        }
+        .msg-user .bubble {
+            background: var(--primary);
+            color: white;
+            padding: 12px 16px;
+            border-radius: var(--radius) var(--radius) 4px var(--radius);
+            max-width: 70%;
+            line-height: 1.6;
+            font-size: 15px;
+        }
+
+        .msg-bot {
+            display: flex;
+            gap: 8px;
+            align-items: flex-start;
+        }
+        .bot-avatar {
+            width: 32px; height: 32px;
+            background: var(--primary-light);
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 16px;
+            flex-shrink: 0;
+        }
+        .msg-bot .bubble {
+            background: white;
+            padding: 16px;
+            border-radius: 4px var(--radius) var(--radius) var(--radius);
+            max-width: 85%;
+            box-shadow: var(--shadow);
+            line-height: 1.7;
+            font-size: 14px;
+        }
+
+        /* Diagnosis sections */
+        .diag-section {
+            margin-bottom: 12px;
+        }
+        .diag-section h3 {
+            font-size: 15px;
+            color: var(--primary);
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .diag-section p {
+            color: var(--gray-700);
+            line-height: 1.7;
+        }
+
+        /* Step badges */
+        .step-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            color: white;
+        }
+        .step1 { background: #2196f3; }
+        .step2 { background: #ff9800; }
+        .step3 { background: #f44336; }
+        .step4 { background: #4caf50; }
+
+        /* Confidence badges */
+        .conf { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+        .conf-green { background: #e8f5e9; color: #2e7d32; }
+        .conf-yellow { background: #fff3e0; color: #e65100; }
+        .conf-orange { background: #fff3e0; color: #bf360c; }
+        .conf-red { background: #ffebee; color: #c62828; }
+
+        /* Competition fire */
+        .competition { font-size: 16px; }
+
+        /* Pro paywall */
+        .paywall {
+            background: linear-gradient(135deg, #fff3e0, #ffe0b2);
+            border: 1px solid #ffcc80;
+            border-radius: var(--radius);
+            padding: 16px;
+            margin-top: 12px;
+            text-align: center;
+        }
+        .paywall h4 { color: #e65100; margin-bottom: 8px; }
+        .paywall-btn {
+            display: inline-block;
+            background: var(--primary);
+            color: white;
+            padding: 8px 24px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            text-decoration: none;
+            margin-top: 8px;
+            border: none;
+            cursor: pointer;
+        }
+
+        /* Input area */
+        .input-area {
+            background: white;
+            border-top: 1px solid var(--gray-200);
+            padding: 12px 16px;
+            display: flex;
+            gap: 8px;
+            max-width: 768px;
+            margin: 0 auto;
+            width: 100%;
+        }
+        .input-area input {
+            flex: 1;
+            padding: 12px 16px;
+            border: 1px solid var(--gray-200);
+            border-radius: 24px;
+            font-size: 15px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .input-area input:focus { border-color: var(--primary); }
+        .input-area button {
+            padding: 12px 20px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 24px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .input-area button:hover { background: #1565c0; }
+        .input-area button:disabled { background: var(--gray-500); cursor: not-allowed; }
+
+        /* Quick prompts */
+        .quick-prompts {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            padding: 8px 16px 0;
+            max-width: 768px;
+            margin: 0 auto;
+            width: 100%;
+        }
+        .quick-btn {
+            padding: 6px 14px;
+            border: 1px solid var(--gray-200);
+            border-radius: 16px;
+            font-size: 13px;
+            color: var(--gray-700);
+            background: white;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .quick-btn:hover { border-color: var(--primary); color: var(--primary); }
+
+        /* Jargon card */
+        .jargon-card {
+            background: #e8f0fe;
+            border-left: 4px solid var(--primary);
+            padding: 12px 16px;
+            border-radius: 0 8px 8px 0;
+            margin-top: 8px;
+        }
+        .jargon-card .term { font-weight: 600; color: var(--primary); }
+        .jargon-card .plain { color: var(--gray-700); margin-top: 4px; }
+
+        /* Loading */
+        .loading {
+            display: flex;
+            gap: 4px;
+            padding: 16px;
+        }
+        .loading span {
+            width: 8px; height: 8px;
+            background: var(--gray-500);
+            border-radius: 50%;
+            animation: bounce 1.4s infinite ease-in-out;
+        }
+        .loading span:nth-child(1) { animation-delay: -0.32s; }
+        .loading span:nth-child(2) { animation-delay: -0.16s; }
+        @keyframes bounce { 0%,80%,100% { transform: scale(0); } 40% { transform: scale(1); } }
+
+        /* Responsive */
+        @media (max-width: 640px) {
+            .msg-bot .bubble { max-width: 92%; }
+            .msg-user .bubble { max-width: 85%; }
+            .input-area { padding: 10px 12px; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <div class="header-left">
+        <div class="logo">🐸</div>
+        <div>
+            <h1>点灯蛙·成都K12升学参谋</h1>
+            <div class="subtitle">帮成都升学家长判断：我的情况，到底行不行</div>
+        </div>
+    </div>
+    <span class="plan-badge plan-free" id="planBadge" onclick="window.location.href='/pay'">免费版</span>
+</div>
+
+<div class="quick-prompts" id="quickPrompts">
+    <button class="quick-btn" onclick="ask('我是外省户籍，老公社保高新16个月，孩子2026幼升小，能上公办吗？')">🪪 随迁子女入学</button>
+    <button class="quick-btn" onclick="ask('大摇号是什么意思？摇中概率大吗？')">🎯 大摇号解读</button>
+    <button class="quick-btn" onclick="ask('我们户口锦江区，想摇七中高新，有机会吗？')">🏫 摇号概率</button>
+    <button class="quick-btn" onclick="ask('幼升小随迁和划片有什么区别？')">📋 入学方式对比</button>
+    <button class="quick-btn" onclick="ask('公民同招是什么意思？')">💡 黑话翻译</button>
+</div>
+
+<div class="chat-container" id="chatContainer">
+    <div class="msg msg-bot">
+        <div class="bot-avatar">🐸</div>
+        <div class="bubble">
+            <p>你好！我是<strong>点灯蛙</strong>，成都升学参谋 🎓</p>
+            <p style="margin-top:8px;">告诉我你的情况，我来帮你判断：</p>
+            <ul style="margin:8px 0 0 20px; line-height:2;">
+                <li>✅ 资格判断：你家情况，到底行不行</li>
+                <li>🔥 竞争烈度：目标学校有多难进</li>
+                <li>📅 时间规划：每一步该什么时候做</li>
+                <li>🛡️ 补救方案：万一不行，还有什么路</li>
+            </ul>
+            <p style="margin-top:8px; font-size:12px; color:var(--gray-500);">免费用户每周5次查询 · 升级Pro获取深度诊断</p>
+        </div>
+    </div>
+</div>
+
+<div class="input-area">
+    <input type="text" id="inputField" placeholder="输入你的升学问题，如：户口锦江，社保高新，孩子幼升小..."
+           onkeypress="if(event.key==='Enter')sendMessage()">
+    <button id="sendBtn" onclick="sendMessage()">发送</button>
+</div>
+
+<script>
+const API_BASE = '/api';
+let currentPlan = 'free';
+let conversationHistory = [];  // 对话历史
+let userOpenid = '';  // 微信openid（由OAuth设置）
+
+// ---- 微信环境检测 & OAuth ----
+(function initWechatAuth() {
+    const isWechat = /MicroMessenger/i.test(navigator.userAgent);
+    const urlParams = new URLSearchParams(window.location.search);
+    const uid = urlParams.get('uid') || localStorage.getItem('k12_uid') || '';
+    
+    if (uid) {
+        localStorage.setItem('k12_uid', uid);
+        // 用uid hash作为openid的代理标识
+        userOpenid = uid;
+    }
+    
+    // 从localStorage恢复plan
+    const savedPlan = localStorage.getItem('k12_plan');
+    if (savedPlan) {
+        updatePlanBadge(savedPlan);
+    }
+    
+    // 如果在微信环境且未登录，在用户首次发送时触发OAuth
+    if (isWechat && !uid) {
+        console.log('[WeChat] 微信环境检测到，未登录，将在首次交互时触发OAuth');
+    }
+})();
+
+function ensureWechatAuth() {
+    // 微信环境首次使用时跳转OAuth
+    const isWechat = /MicroMessenger/i.test(navigator.userAgent);
+    const uid = localStorage.getItem('k12_uid');
+    if (isWechat && !uid) {
+        // 保存当前页面，OAuth后跳回
+        const returnUrl = encodeURIComponent(window.location.pathname);
+        window.location.href = `/api/wechat/auth?return_to=${returnUrl}`;
+        return false;  // 阻止后续操作，等OAuth回调
+    }
+    return true;
+}
+
+// Plan badge update
+function updatePlanBadge(plan) {
+    const badge = document.getElementById('planBadge');
+    currentPlan = plan;
+    if (plan === 'lite' || plan === 'max') {
+        badge.textContent = plan === 'lite' ? 'Pro Lite' : 'Pro Max';
+        badge.className = 'plan-badge plan-pro';
+    } else {
+        badge.textContent = '免费版';
+        badge.className = 'plan-badge plan-free';
+    }
+}
+
+// Add message to chat
+function addMessage(type, content) {
+    const container = document.getElementById('chatContainer');
+    const msg = document.createElement('div');
+    msg.className = `msg msg-${type}`;
+
+    if (type === 'user') {
+        msg.innerHTML = `<div class="bubble">${escapeHtml(content)}</div>`;
+    } else {
+        msg.innerHTML = `
+            <div class="bot-avatar">🐸</div>
+            <div class="bubble">${content}</div>
+        `;
+    }
+
+    container.appendChild(msg);
+    container.scrollTop = container.scrollHeight;
+    return msg;
+}
+
+function addLoading() {
+    const msg = addMessage('bot', '<div class="loading"><span></span><span></span><span></span></div>');
+    return msg;
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Quick prompt
+function ask(text) {
+    document.getElementById('inputField').value = text;
+    sendMessage();
+}
+
+// Send message
+async function sendMessage() {
+    const input = document.getElementById('inputField');
+    const text = input.value.trim();
+    if (!text) return;
+
+    // 微信环境首次使用检查OAuth
+    if (!ensureWechatAuth()) return;
+
+    input.value = '';
+    document.getElementById('sendBtn').disabled = true;
+
+    // 记录用户消息到历史
+    conversationHistory.push({ role: 'user', content: text });
+    addMessage('user', text);
+
+    // Check if it's a jargon query (single short term)
+    if (text.length <= 6 && !text.includes('，') && !text.includes('？')) {
+        const loadingMsg = addLoading();
+        try {
+            const resp = await fetch(`${API_BASE}/jargon`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ term: text }),
+            });
+            const data = await resp.json();
+            loadingMsg.querySelector('.bubble').innerHTML = renderJargon(data);
+        } catch (e) {
+            loadingMsg.querySelector('.bubble').innerHTML = '❌ 查询失败，请重试';
+        }
+        document.getElementById('sendBtn').disabled = false;
+        return;
+    }
+
+    // Full diagnosis - paid tier needs multiple LLM calls, may take 1-2 min
+    const loadingMsg = addLoading();
+    loadingMsg.querySelector('.bubble').textContent = '🐸 点灯蛙正在深度诊断中，付费用户需分析约1-2分钟，请耐心等待...';
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 150000);
+    try {
+        const resp = await fetch(`${API_BASE}/diagnose/policy`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                question: text,
+                plan: currentPlan,
+                conversation_history: conversationHistory.slice(0, -1),  // 不包含当前消息
+                openid: userOpenid || undefined,
+            }),
+            signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+
+        if (resp.status === 429) {
+            const data = await resp.json();
+            loadingMsg.querySelector('.bubble').innerHTML = `
+                <p>⚠️ ${data.detail}</p>
+                <div class="paywall">
+                    <h4>🔓 升级解锁完整诊断</h4>
+                    <p>Pro Lite ¥29.9/月 · 3次深度诊断+无限问答</p>
+                    <p>Pro Max ¥99/月 · 无限诊断+竞争烈度+时间轴</p>
+                    <a href="/pay" class="paywall-btn" style="text-decoration:none;display:inline-block;">立即升级</a>
+                </div>
+            `;
+            document.getElementById('sendBtn').disabled = false;
+            return;
+        }
+
+        const data = await resp.json();
+        loadingMsg.querySelector('.bubble').innerHTML = renderDiagnosis(data);
+
+        // 记录助手回复到历史（简化版本）
+        const botSummary = data.preliminary_conclusion || '诊断完成';
+        conversationHistory.push({ role: 'assistant', content: botSummary });
+
+        // Update plan from response
+        if (data.plan_used) updatePlanBadge(data.plan_used);
+
+    } catch (e) {
+        loadingMsg.querySelector('.bubble').innerHTML = '❌ 诊断失败' + (e.name === 'AbortError' ? '（超时，付费深度分析较慢，请再试一次）' : '，请重试');
+    }
+
+    document.getElementById('sendBtn').disabled = false;
+}
+
+// Render jargon
+function renderJargon(data) {
+    if (!data.plain || data.plain.includes('暂未收录')) {
+        return `<p>🤔 "${data.term}" 暂未收录到黑话表，试试完整描述你的问题吧！</p>`;
+    }
+    return `
+        <div class="jargon-card">
+            <div class="term">${data.term}</div>
+            <div class="plain">${data.plain}</div>
+            <div style="margin-top:4px; font-size:12px; color:var(--gray-500);">适用场景：${data.scenario} · 政策依据：${data.policy_ref}</div>
+        </div>
+    `;
+}
+
+// Render diagnosis result
+function renderDiagnosis(data) {
+    let html = '';
+
+    // Step1 badge
+    html += '<div class="diag-section">';
+    html += `<h3><span class="step-badge step1">Step1 情况理解</span></h3>`;
+    if (data.step1) {
+        html += `<p><strong>家庭画像：</strong>${data.step1.summary || '需要更多信息'}</p>`;
+        if (data.step1.missing_info && data.step1.missing_info.length > 0) {
+            html += `<p style="color:var(--warning);">⚠️ 还需要补充：${data.step1.missing_info.join('、')}</p>`;
+        }
+    }
+    html += '</div>';
+
+    // 8段基础输出
+    if (data.preliminary_conclusion) {
+        html += `<div class="diag-section"><h3>📋 初步结论</h3><p>${data.preliminary_conclusion}</p></div>`;
+    }
+    if (data.situation_type) {
+        html += `<div class="diag-section"><h3>🏠 情况分类</h3><p>${data.situation_type}</p></div>`;
+    }
+    if (data.policy_basis) {
+        html += `<div class="diag-section"><h3>📜 政策依据</h3><p>${data.policy_basis}</p></div>`;
+    }
+    if (data.key_timeline) {
+        html += `<div class="diag-section"><h3>📅 时间节点</h3><p>${data.key_timeline}</p></div>`;
+    }
+    if (data.required_materials) {
+        html += `<div class="diag-section"><h3>📑 所需材料</h3><p>${data.required_materials}</p></div>`;
+    }
+    if (data.risk_points) {
+        html += `<div class="diag-section"><h3>⚠️ 风险提示</h3><p>${data.risk_points}</p></div>`;
+    }
+    if (data.next_steps) {
+        html += `<div class="diag-section"><h3>👉 下一步建议</h3><p>${data.next_steps}</p></div>`;
+    }
+    if (data.pending_questions) {
+        html += `<div class="diag-section"><h3>❓ 需确认</h3><p>${data.pending_questions}</p></div>`;
+    }
+
+    // Step2 灰色地带（付费层）
+    if (data.step2 && data.step2.zone_type && data.step2.zone_type !== '无灰色地带') {
+        html += '<div class="diag-section">';
+        html += `<h3><span class="step-badge step2">Step2 灰色地带</span></h3>`;
+        html += `<p><strong>政策原文：</strong>${data.step2.policy_text}</p>`;
+        html += `<p>🔹 保守解释：${data.step2.conservative_read}</p>`;
+        html += `<p>🔸 激进解释：${data.step2.aggressive_read}</p>`;
+        html += `<p>温差类型：${data.step2.zone_type} <span class="conf conf-${confClass(data.step2.confidence)}">${data.step2.confidence}</span></p>`;
+        html += '</div>';
+    }
+
+    // Step3 竞争烈度（付费层）
+    if (data.step3) {
+        html += '<div class="diag-section">';
+        html += `<h3><span class="step-badge step3">Step3 竞争烈度</span></h3>`;
+        if (data.step3.paths) {
+            for (const p of data.step3.paths) {
+                html += `<p><span class="competition">${p.competition}</span> <strong>${p.path_name}</strong> — ${p.competition_note}</p>`;
+                html += `<p style="margin-left:20px; font-size:13px;">资格：${p.eligibility} <span class="conf conf-${confClass(p.eligibility_confidence)}">${p.eligibility_confidence}</span> · 条件：${p.key_requirement}</p>`;
+            }
+        }
+        if (data.step3.recommended_combo) {
+            html += `<p style="margin-top:8px;"><strong>💡 推荐组合：</strong>${data.step3.recommended_combo}</p>`;
+        }
+        html += '</div>';
+    }
+
+    // Step4 时间线（付费层）
+    if (data.step4) {
+        html += '<div class="diag-section">';
+        html += `<h3><span class="step-badge step4">Step4 时间线</span></h3>`;
+        if (data.step4.action_items) {
+            for (const item of data.step4.action_items) {
+                const imp = item.importance === '必须' ? '🔴' : (item.importance === '建议' ? '🟡' : '🟢');
+                html += `<p>${imp} <strong>${item.deadline}</strong> — ${item.action}</p>`;
+            }
+        }
+        if (data.step4.fallback_plan) {
+            html += `<p style="margin-top:8px;"><strong>🛡️ 补救方案：</strong>${data.step4.fallback_plan}</p>`;
+        }
+        html += '</div>';
+    }
+
+    // Paywall for free users
+    if (data.plan_used === 'free' && (!data.step2 && !data.step3 && !data.step4)) {
+        html += `
+            <div class="paywall">
+                <h4>🔓 升级Pro获取完整四步诊断</h4>
+                <p>免费版：Step1情况理解 + 基础8段输出</p>
+                <p>Pro版额外解锁：灰色地带判断 · 竞争烈度评估 · 个性化时间线</p>
+                <a href="/pay" class="paywall-btn" style="text-decoration:none;display:inline-block;">升级 Pro Lite ¥29.9/月</a>
+            </div>
+        `;
+    }
+
+    // References
+    if (data.references && data.references.length > 0) {
+        html += '<div style="margin-top:12px; padding-top:8px; border-top:1px solid var(--gray-200);">';
+        html += '<p style="font-size:12px; color:var(--gray-500);">📎 参考来源：</p>';
+        for (const ref of data.references.slice(0, 3)) {
+            html += `<p style="font-size:12px; color:var(--gray-500); margin-left:8px;">· ${ref.title}${ref.source_grade ? " [" + ref.source_grade + "]" : ""}</p>`;
+        }
+        html += '</div>';
+    }
+
+    // Disclaimer
+    html += '<p style="font-size:11px; color:var(--gray-500); margin-top:8px; text-align:center;">本产品为信息参考工具，建议以教育局官方公告为准</p>';
+
+    return html;
+}
+
+function confClass(conf) {
+    if (!conf) return 'yellow';
+    if (conf.includes('🟢')) return 'green';
+    if (conf.includes('🟡')) return 'yellow';
+    if (conf.includes('🟠')) return 'orange';
+    if (conf.includes('🔴')) return 'red';
+    return 'yellow';
+}
+
+function showUpgradeInfo() {
+    // 跳转到独立支付页
+    window.location.href = '/pay';
+}
+</script>
+<div style="text-align:center;padding:10px;font-size:12px;color:#999;"><a href="https://beian.miit.gov.cn/" target="_blank" rel="nofollow" style="color:#999;text-decoration:none;">蜀ICP备2026032729号</a> <!-- 公安联网备案数据码：434f8b8c8c394930744d9e2ba07fd2d6 --></div>
+</body>
+</html>
