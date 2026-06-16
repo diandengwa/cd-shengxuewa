@@ -89,8 +89,6 @@ from app.invite_codes import (
 )
 
 from app.payment import wechat_prepay_order, handle_payment_success, decrypt_wechat_resource, IS_MOCK_PAY
-from app import districting
-from app import districting
 
 
 
@@ -194,16 +192,6 @@ async def startup_event():
 
     """启动时加载所有数据"""
 
-
-    if districting.load():
-        logger.info(f"[划片] 划片数据加载完成: {len(districting._schools)} 所学校")
-    else:
-        logger.warning("[划片] 划片数据加载失败")
-
-    if districting.load():
-        logger.info(f"[划片] 划片数据加载完成: {len(districting._schools)} 所学校")
-    else:
-        logger.warning("[划片] 划片数据加载失败")
 
     # Load dual-core knowledge base (policy + pain-point cards)
     if knowledge_card_loader.load():
@@ -435,48 +423,6 @@ async def submit_feedback(feedback: FeedbackRequest):
 
 
 # ============================================================
-
-# ============================================================
-# 划片查询 API
-# ============================================================
-
-
-@app.get("/api/district/search")
-async def district_search(
-    addr: str = Query(..., description="地址关键词（如：泡桐树街、中和镇）"),
-    district: str = Query(None, description="限定区域（如：青羊区）"),
-    level: str = Query(None, description="限定学段（小学/初中）"),
-):
-    """
-    划片查询 — 输入地址，返回对口学校
-    """
-    if not districting.is_loaded():
-        raise HTTPException(status_code=503, detail="划片数据未加载")
-
-    results = districting.search(addr, district=district, level=level)
-    return {
-        "query": addr,
-        "district": district,
-        "level": level,
-        "matches": results,
-        "total": len(results),
-    }
-
-
-@app.get("/api/district/list")
-async def district_list(
-    district: str = Query(None, description="限定区域"),
-    level: str = Query(None, description="限定学段"),
-):
-    """
-    列出所有划片学校
-    """
-    if not districting.is_loaded():
-        raise HTTPException(status_code=503, detail="划片数据未加载")
-
-    results = districting.list_all(district=district, level=level)
-    return {"schools": results, "total": len(results)}
-
 
 # 邀请码 & 订单 API
 
