@@ -1,5 +1,6 @@
 # OPC 内容工厂配置文件
-# 环境变量覆盖: OPC_ROOT, DEEPSEEK_API_KEY, GITHUB_TOKEN, MPTEXT_API_KEY
+# 环境变量覆盖: OPC_ROOT, DEEPSEEK_API_KEY, GITHUB_TOKEN, MPTEXT_API_KEY, WECHAT_APP_ID, WECHAT_APP_SECRET
+# 微信支付V3配置: WECHAT_PAY_MERCHANT_ID, WECHAT_PAY_API_V3_KEY, WECHAT_PAY_CERT_PATH, WECHAT_PAY_CERT_SERIAL_NO, WECHAT_PAY_NOTIFY_URL, WECHAT_PAY_REFUND_NOTIFY_URL
 
 # 路径配置 (支持环境变量)
 paths:
@@ -11,6 +12,13 @@ paths:
   raw_articles: "${OPC_ROOT}/raw-articles"
   logs: "${OPC_ROOT}/logs"
   scripts: "${OPC_ROOT}/scripts"
+  
+  # 政策查询模块数据路径
+  policy_data: "${OPC_ROOT}/data/policy"
+  # 划片数据路径
+  school_district_data: "${OPC_ROOT}/data/school-district"
+  # 升学日历数据路径
+  calendar_data: "${OPC_ROOT}/data/calendar"
 
 # API配置
 api:
@@ -40,6 +48,87 @@ wechat:
   enabled: false
   cdp_url: "http://localhost:9222"
   # 服务器端禁用微信推送，保留在Windows本地执行
+
+# 微信草稿箱配置（新增）
+wechat_draft:
+  # 是否启用自动上传到微信公众号草稿箱
+  enabled: true
+  # 上传成功后通知地址（可选，用于回调通知）
+  notify_url: "${WECHAT_DRAFT_NOTIFY_URL}"
+  # 微信公众号AppID
+  app_id: "${WECHAT_APP_ID}"
+  # 微信公众号AppSecret
+  app_secret: "${WECHAT_APP_SECRET}"
+  # 排版模板路径（支持绝对路径或相对路径，相对路径基于项目根目录）
+  template_path: "${OPC_ROOT}/templates/wechat_draft.html"
+  # 默认封面图路径（用于没有设置封面的文章）
+  default_cover: "${OPC_ROOT}/assets/default_cover.png"
+  # 作者名称（公众号后台显示）
+  author: "点灯蛙"
+  # 是否开启原创声明
+  declare_original: true
+  # 原创声明时是否开启赞赏
+  enable_appreciation: false
+  # 是否开启留言
+  enable_comment: true
+  # 草稿箱API端点（微信公众号官方API）
+  api_base_url: "https://api.weixin.qq.com/cgi-bin/draft"
+  # 获取access_token的API端点
+  token_api_url: "https://api.weixin.qq.com/cgi-bin/token"
+  # 上传超时时间（秒）
+  upload_timeout: 30
+  # 重试次数
+  max_retries: 3
+  # 重试间隔（秒）
+  retry_delay: 5
+  # 排版配置
+  formatting:
+    # 正文默认字体大小（px）
+    font_size: 16
+    # 行高倍数
+    line_height: 1.8
+    # 段落间距（px）
+    paragraph_spacing: 12
+    # 标题样式
+    title_style:
+      font_size: 20
+      font_weight: "bold"
+      color: "#333333"
+      alignment: "center"
+    # 引用样式
+    quote_style:
+      border_color: "#4A90D9"
+      background_color: "#F0F7FF"
+      font_size: 14
+      font_color: "#666666"
+    # 代码块样式
+    code_style:
+      background_color: "#F5F5F5"
+      font_family: "Consolas, Monaco, monospace"
+      font_size: 14
+
+# 微信支付V3配置（新增）
+wechat_pay:
+  # 商户号（微信支付商户平台获取）
+  merchant_id: "${WECHAT_PAY_MERCHANT_ID}"
+  # APIv3密钥（微信支付商户平台设置）
+  api_v3_key: "${WECHAT_PAY_API_V3_KEY}"
+  # 商户证书路径（p12或pem格式，支持绝对路径或相对路径）
+  cert_path: "${WECHAT_PAY_CERT_PATH}"
+  # 商户证书序列号（证书中获取）
+  cert_serial_no: "${WECHAT_PAY_CERT_SERIAL_NO}"
+  # 支付回调URL（公网可访问）
+  notify_url: "${WECHAT_PAY_NOTIFY_URL}"
+  # 支付结果通知地址（用于异步通知）
+  refund_notify_url: "${WECHAT_PAY_REFUND_NOTIFY_URL}"
+  # API基础地址（默认生产环境）
+  api_base_url: "https://api.mch.weixin.qq.com"
+  # 连接超时时间（秒）
+  timeout: 30
+  # 重试次数
+  max_retries: 3
+  # 重试间隔（秒）
+  retry_delay: 2
 
 # 日志配置
 logging:
@@ -75,56 +164,4 @@ pipeline:
     # 静态内容检测
     static_keywords: ["养成计划", "30天", "习惯养成", "遛娃", "亲子互动", "不花钱的", "比手机管用", "暑假", "夏令营", "阅读计划"]
     
-    # AI味检测
-    ai_smell_keywords: ["赋能", "抓手", "闭环", "沉淀", "方法论", "底层逻辑", "认知升级", "降维打击", "生态", "赛道", "矩阵", "值得关注的是", "不得不提", "不得不说", "让我们拭目以待", "未来可期"]
-
-  # 采集配置
-  collection:
-    max_articles: 100
-    days_back: 30
-    min_word_count: 500
-    
-  # 审稿配置
-  review:
-    min_score: 8.0
-    auto_approve: false
-    
-  # 发布配置
-  publish:
-    auto_publish: false
-    platforms: ["wechat", "xiaohongshu"]
-
-# 人格配置
-personas:
-  - name: "点灯蛙"
-    target: "成都K12家长"
-    account: "成都K12教育"
-    priority: "P0"
-    status: "active"
-    
-  - name: "搞钱蛙"
-    target: "闲鱼卖家"
-    account: "ADSS闲鱼矩阵"
-    priority: "P1"
-    status: "frozen"
-    
-  - name: "养虾蛙"
-    target: "养虾爱好者"
-    account: "养虾知识分享"
-    priority: "P1"
-    status: "frozen"
-    
-  - name: "情报蛙"
-    target: "AI从业者"
-    account: "AI情报局"
-    priority: "P2"
-    status: "frozen"
-
-# 定时任务配置 (cron格式)
-cron:
-  collect: "0 7 * * *"    # 每天07:00采集
-  mine: "0 8 * * *"       # 每天08:00采矿
-  generate: "0 9 * * *"   # 每天09:00生成
-  review: "0 14 * * *"     # 每天14:00审核
-  publish: "0 15 * * *"    # 每天15:00发布
-  sync: "0 */6 * * *"      # 每6小时同步GitHub
+    # A
