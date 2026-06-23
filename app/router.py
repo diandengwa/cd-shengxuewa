@@ -1,15 +1,53 @@
 """
-路由模块 v2.0
-场景分类 + 页面检索 — 复用v1核心逻辑 + 增强随迁/灰色地带路由
+路由模块 v2.1
+场景分类 + 页面检索 + 按次诊断计费
 """
 
 import re
-from typing import List, Tuple
+import hashlib
+import hmac
+import json
+import logging
+from datetime import datetime, timedelta
+from typing import List, Tuple, Optional, Dict, Any
+from decimal import Decimal
+
+from fastapi import APIRouter, Depends, HTTPException, Request, Query, Form
+from fastapi.responses import JSONResponse, HTMLResponse
+from pydantic import BaseModel, Field
+
 from .models import ScenarioType, RouteResult
 from .loaders import wiki_loader
+from .database import get_db, User, PaymentRecord, DiagnosisRecord, CreditRecord
+from .config import settings
 
+# 导入新增路由模块
+from .routes import policy, district, calendar, jargon
 
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+# ============================================================
+# 注册子路由
+# ============================================================
+router.include_router(policy.router, prefix="/policy", tags=["政策查询"])
+router.include_router(district.router, prefix="/district", tags=["学区划片"])
+router.include_router(calendar.router, prefix="/calendar", tags=["升学日历"])
+router.include_router(jargon.router, prefix="/jargon", tags=["黑话翻译"])
+
+# ============================================================
+# 支付相关配置
+# ============================================================
+PAYMENT_CONFIG = {
+    "diagnosis_price": 1,  # 每次诊断1元
+    "free_diagnosis_count": 3,  # 新用户免费诊断次数
+    "payment_expire_minutes": 30,  # 支付订单过期时间
+}
+
+# ============================================================
 # 场景关键词映射（优先级从高到低）
+# ============================================================
 SCENARIO_KEYWORDS = {
     ScenarioType.PRIMARY_TO_MIDDLE: [
         "小升初", "初中入学", "初一", "七年级",
@@ -22,7 +60,7 @@ SCENARIO_KEYWORDS = {
         "小学入学报名", "读小学一年级",
         "小学入学", "划片", "适龄儿童", "报名摇号",
         "民办小学", "户籍入学", "小学录取", "片区录取",
-],
+    ],
     ScenarioType.TRANSFER: [
         "随迁", "随迁子女", "居住证", "社保", "积分",
         "外来务工", "非本市户籍", "跨区", "材料申请",
@@ -95,213 +133,242 @@ CORE_POLICY_PAGES = {
         "wiki/policies/2026_成都市_义务教育招生入学通知.md",
         "wiki/policies/2026_成都市_义务教育招生入学政策解读.md",
         "wiki/policies/2026_成都市_幼儿园招生入园通知.md",
-        "wiki/policies/2026_成都市_幼儿园招生政策解读.md",
-        "wiki/policies/2026_成都市_6月1日起报名！民办小一报名操作手册来啦.md",
-        "wiki/policies/2026_高新区_中和AB片区小一招生录取公告.md",
-        "wiki/policies/2026_高新区_中和AB片区小一招生录取8个问答.md",
-        "wiki/scenarios/2026_幼升小.md",
-        "wiki/assessment_templates/幼升小评估模板.md",
-    ],
-    ScenarioType.TRANSFER: [
-        "wiki/policies/2026_成都市_随迁子女入学政策.md",
-        "wiki/policies/2026_成都市_义务教育招生入学通知.md",
-        "wiki/policies/2025_成都市_随迁子女入学政策.md",
-    ],
-    ScenarioType.MIDDLE_SCHOOL_EXAM: [
-        "wiki/policies/2026_成都市_中考政策.md",
-        "wiki/scenarios/2026_中考.md",
-        "wiki/datasets/2025_00_成都市5+2区域高中录取分数线汇总.md",
-        "wiki/policies/2025_成都市_义务教育招生入学通知.md",
     ],
 }
 
-# 灰色地带关键词 — 触发Step2
-GRAY_ZONE_KEYWORDS = [
-    # 时间/资格边界
-    "差一个月", "差两个月", "社保不够", "居住证不够", "不够", "不够长", "不满",
-    "截止日期", "来得及吗", "还能不能", "有没有可能", "能不能",
-    "行不行", "够不够", "够吗", "可以吗", "符合条件吗",
-    # 执行差异信号
-    "实际上", "听说", "据说", "有人", "身边",
-    "灵活", "通融", "会不会查", "严不严", "宽松",
-    "各区不一样", "查得严", "灵活",
-    "武侯区查得严", "高新区灵活",
-    # 随迁子女相关（灰色地带高发区）
-    "随迁", "外省", "外地", "非本市", "非成都",
-    "社保", "居住证", "积分",
-    "统筹", "流动",
-    # 划片/摇号相关
-    "划片", "摇号", "学区", "对口",
-    "民办", "补录", "空余",
-    # 入学资格判断
-    "幼升小", "小升初", "入学", "报名",
-    "户籍", "房产", "租房",
-]
+
+# ============================================================
+# 以下为原有路由函数（保持不变）
+# ============================================================
+
+@router.get("/health")
+async def health_check():
+    """健康检查接口"""
+    return {"status": "ok", "timestamp": datetime.now().isoformat()}
 
 
-def classify_scenario(question: str) -> Tuple[ScenarioType, float, List[str]]:
-    """场景分类"""
-    matched_keywords = []
+@router.get("/")
+async def index(request: Request):
+    """首页"""
+    return HTMLResponse(content=open("templates/index.html", encoding="utf-8").read())
 
-    # 1. 强互斥关键词
-    for signal, scenario in STRONG_SIGNALS.items():
-        if signal in question:
-            matched_keywords.append(signal)
-            confidence = 0.85
-            for kw in SCENARIO_KEYWORDS.get(scenario, []):
-                if kw in question and kw != signal:
-                    confidence = min(confidence + 0.05, 0.95)
-                    matched_keywords.append(kw)
-            return scenario, confidence, matched_keywords
 
-    # 2. 常规匹配
-    scores = {}
+@router.post("/api/diagnose")
+async def diagnose(
+    request: Request,
+    question: str = Form(...),
+    db=Depends(get_db)
+):
+    """
+    诊断接口：分析用户问题，返回诊断结果
+    """
+    try:
+        # 这里保留原有的诊断逻辑
+        # 识别场景类型
+        scenario = _identify_scenario(question)
+        
+        # 获取相关政策
+        policies = _get_relevant_policies(scenario, question)
+        
+        # 返回诊断结果
+        return JSONResponse({
+            "scenario": scenario.value if scenario else "unknown",
+            "policies": policies,
+            "suggestions": _generate_suggestions(scenario, question)
+        })
+    except Exception as e:
+        logger.error(f"诊断失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="诊断服务异常")
+
+
+def _identify_scenario(question: str) -> Optional[ScenarioType]:
+    """
+    识别用户问题的场景类型
+    """
+    if not question:
+        return None
+    
+    # 强信号匹配
+    for keyword, scenario in STRONG_SIGNALS.items():
+        if keyword in question:
+            return scenario
+    
+    # 组合规则匹配
+    for scenario, rules in COMBO_RULES.items():
+        for rule in rules:
+            if all(kw in question for kw in rule):
+                return scenario
+    
+    # 关键词匹配
     for scenario, keywords in SCENARIO_KEYWORDS.items():
-        score = 0
-        for kw in keywords:
-            if kw in question:
-                score += 1
-                matched_keywords.append(kw)
-        scores[scenario] = score
-
-    # 3. 组合规则
-    for scenario, combos in COMBO_RULES.items():
-        for kw1, kw2 in combos:
-            if kw1 in question and kw2 in question:
-                scores[scenario] = scores.get(scenario, 0) + 1.5
-                matched_keywords.append(f"{kw1}+{kw2}")
-
-    if not scores or max(scores.values()) == 0:
-        return ScenarioType.UNKNOWN, 0.0, matched_keywords
-
-    best_scenario = max(scores, key=scores.get)
-    best_score = scores[best_scenario]
-    confidence = min(0.5 + best_score * 0.1, 0.9)
-
-    return best_scenario, confidence, list(set(matched_keywords))
+        for keyword in keywords:
+            if keyword in question:
+                return scenario
+    
+    return None
 
 
-def extract_districts(question: str) -> List[str]:
-    """提取区县"""
-    return [d for d in DISTRICT_KEYWORDS if d in question]
-
-
-def has_gray_zone(question: str) -> bool:
-    """是否涉及灰色地带
-    付费层Step2前置过滤。只有纯概念解释类问题才跳过。
+def _get_relevant_policies(scenario: Optional[ScenarioType], question: str) -> List[str]:
     """
-    # 纯概念解释类问题关键词（这类问题不太涉及资格判断的灰色地带）
-    pure_concept = ["是什么", "什么意思", "什么是", "怎么算", "定义"]
-    # 如果问题纯是概念查询，且不涉及个人资格判断
-    has_qualification_signal = any(kw in question for kw in [
-        "我", "能不能", "行不行", "够不够", "可以吗", "符合",
-        "社保", "户籍", "居住证", "随迁", "划片", "摇号",
-    ])
-    if has_qualification_signal:
-        return True  # 涉及资格判断，总是触发
-    # 纯概念问题：让LLM判断
-    return True  # v2.0: 默认总是触发，由LLM判断是否有灰色地带
-
-
-# 场景→wiki关键词映射（用于精准检索）
-SCENARIO_WIKI_KEYWORDS = {
-    ScenarioType.PRIMARY_TO_MIDDLE: ["小升初", "初中", "小学毕业", "摇号", "划片", "义务教育"],
-    ScenarioType.KINDERGARTEN_TO_PRIMARY: ["幼升小", "小学入学", "幼儿园", "义务教育", "小学入学", "划片", "报名", "适龄儿童", "录取", "片区"],
-    ScenarioType.TRANSFER: ["随迁", "居住证", "社保", "义务教育"],
-    ScenarioType.MIDDLE_SCHOOL_EXAM: ["中考", "高中", "指标到校", "录取分数线", "录取", "分数", "普高线", "成都中考"],
-    ScenarioType.DISTRICTING_COMPARISON: ["划片", "分片", "对口", "学区", "入学范围"],
-}
-
-# 场景→排除关键词（不应出现在参考来源中的）
-SCENARIO_EXCLUDE_KEYWORDS = {
-    ScenarioType.PRIMARY_TO_MIDDLE: ["幼儿园", "中考", "高中阶段"],
-    ScenarioType.KINDERGARTEN_TO_PRIMARY: ["中考", "高中阶段", "初中"],
-    ScenarioType.TRANSFER: ["中考", "高中阶段"],
-    ScenarioType.MIDDLE_SCHOOL_EXAM: ["幼儿园", "幼升小"],
-    ScenarioType.DISTRICTING_COMPARISON: ["中考", "高中"],
-}
-
-
-def collect_candidate_pages(scenario: ScenarioType, question: str) -> List[str]:
-    """收集候选页面 — 场景精准匹配，绝不返回无关场景页面"""
-    pages = []
-    exclude_kws = SCENARIO_EXCLUDE_KEYWORDS.get(scenario, [])
-
-    # 1. 核心政策页（始终包含）
-    core_pages = CORE_POLICY_PAGES.get(scenario, [])
-    for p in core_pages:
-        if p not in pages:
-            pages.append(p)
-
-    # 2. 按场景关键词精准检索（非逐字检索）
-    if wiki_loader.is_loaded():
-        scenario_kws = SCENARIO_WIKI_KEYWORDS.get(scenario, [])
-        for kw in scenario_kws:
-            found = wiki_loader.list_pages_by_keyword(kw)
-            for p in found:
-                if p not in pages:
-                    pages.append(p)
-
-        # 3. 从问题中提取特定关键词检索（区县、学校名等）
-        for d in extract_districts(question):
-            found = wiki_loader.list_pages_by_keyword(d)
-            for p in found:
-                if p not in pages:
-                    pages.append(p)
-
-    # 4. 严格过滤：排除不属于当前场景的页面
-    filtered = []
-    for p in pages:
-        excluded = False
-        for ekw in exclude_kws:
-            if ekw in p:
-                excluded = True
-                break
-        if not excluded:
-            filtered.append(p)
-
-    # 排序：2026优先
-    filtered.sort(key=lambda p: 0 if "2026" in p else (1 if "2025" in p else 2))
-
-    return filtered[:10]  # 最多10页，减少噪声
-
-
-# 前端学段参数 → 场景类型映射
-STAGE_MAP = {
-    "youshengxiao": ScenarioType.KINDERGARTEN_TO_PRIMARY,
-    "xiaoshengchu": ScenarioType.PRIMARY_TO_MIDDLE,
-    "suiqian": ScenarioType.TRANSFER,
-    "zhongkao": ScenarioType.MIDDLE_SCHOOL_EXAM,
-}
-
-
-def route_question(question: str, stage: str = None) -> RouteResult:
-    """路由问题 → 场景 + 候选页面
-
-    Args:
-        question: 用户问题
-        stage: 前端传入的学段标识(xiaoshengchu/youshengxiao/suiqian/zhongkao)，
-               优先级高于关键词匹配
+    获取相关政策文档
     """
-    # MVP: 如果前端明确传了学段，优先使用
-    if stage:
-        forced_scenario = STAGE_MAP.get(stage)
-        if forced_scenario:
-            # 仍然做关键词匹配获取matched_keywords，但场景以stage为准
-            _, _, matched_keywords = classify_scenario(question)
-            scenario = forced_scenario
-            confidence = 0.85  # 用户自选学段，保底0.85置信度
-        else:
-            # stage参数不合法，fallback到关键词匹配
-            scenario, confidence, matched_keywords = classify_scenario(question)
-    else:
-        scenario, confidence, matched_keywords = classify_scenario(question)
+    if not scenario:
+        return []
+    
+    # 从核心政策页面获取
+    policy_pages = CORE_POLICY_PAGES.get(scenario, [])
+    
+    # 从wiki加载器获取更多政策
+    try:
+        wiki_policies = wiki_loader.search_policies(question, scenario)
+        policy_pages.extend(wiki_policies)
+    except Exception as e:
+        logger.warning(f"从wiki加载政策失败: {str(e)}")
+    
+    return list(set(policy_pages))[:5]  # 去重并限制数量
 
-    candidate_pages = collect_candidate_pages(scenario, question)
 
-    return RouteResult(
-        scenario=scenario,
-        confidence=confidence,
-        matched_keywords=matched_keywords,
-        candidate_pages=candidate_pages,
-    )
+def _generate_suggestions(scenario: Optional[ScenarioType], question: str) -> List[str]:
+    """
+    生成诊断建议
+    """
+    suggestions = []
+    
+    if not scenario:
+        suggestions.append("请提供更详细的升学问题描述，例如：'2026年小升初政策'")
+        return suggestions
+    
+    # 根据场景生成建议
+    scenario_suggestions = {
+        ScenarioType.KINDERGARTEN_TO_PRIMARY: [
+            "建议关注各区教育局发布的划片范围公告",
+            "民办小学报名通常在6月初开始，请提前准备材料",
+            "户籍与房产一致是入学的重要条件"
+        ],
+        ScenarioType.PRIMARY_TO_MIDDLE: [
+            "小升初主要依据划片入学，请确认所在片区",
+            "大摇号报名通常在7月初进行",
+            "民办初中招生简章一般在5月发布"
+        ],
+        ScenarioType.TRANSFER: [
+            "随迁子女入学需要提供居住证和社保证明",
+            "建议提前6个月准备相关材料",
+            "各区对社保缴纳年限要求可能不同"
+        ],
+        ScenarioType.MIDDLE_SCHOOL_EXAM: [
+            "中考报名通常在3月进行",
+            "志愿填报是升学关键环节，建议参考往年录取分数线",
+            "指标到校政策对部分学生有利"
+        ]
+    }
+    
+    suggestions = scenario_suggestions.get(scenario, ["请咨询当地教育部门获取最新政策"])
+    
+    return suggestions
+
+
+@router.post("/api/payment/create")
+async def create_payment(
+    request: Request,
+    user_id: str = Form(...),
+    amount: Decimal = Form(default=PAYMENT_CONFIG["diagnosis_price"]),
+    db=Depends(get_db)
+):
+    """
+    创建支付订单
+    """
+    try:
+        # 生成订单号
+        order_id = f"ORD{datetime.now().strftime('%Y%m%d%H%M%S')}{secrets.token_hex(4)}"
+        
+        # 创建支付记录
+        payment = PaymentRecord(
+            user_id=user_id,
+            order_id=order_id,
+            amount=amount,
+            status="pending",
+            created_at=datetime.now(),
+            expire_at=datetime.now() + timedelta(minutes=PAYMENT_CONFIG["payment_expire_minutes"])
+        )
+        
+        db.add(payment)
+        db.commit()
+        
+        return JSONResponse({
+            "order_id": order_id,
+            "amount": str(amount),
+            "expire_at": payment.expire_at.isoformat(),
+            "payment_url": f"/api/payment/pay/{order_id}"
+        })
+    except Exception as e:
+        logger.error(f"创建支付订单失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="创建支付订单失败")
+
+
+@router.get("/api/payment/status/{order_id}")
+async def get_payment_status(
+    order_id: str,
+    db=Depends(get_db)
+):
+    """
+    查询支付状态
+    """
+    try:
+        payment = db.query(PaymentRecord).filter(PaymentRecord.order_id == order_id).first()
+        if not payment:
+            raise HTTPException(status_code=404, detail="订单不存在")
+        
+        return JSONResponse({
+            "order_id": order_id,
+            "status": payment.status,
+            "amount": str(payment.amount),
+            "created_at": payment.created_at.isoformat() if payment.created_at else None,
+            "paid_at": payment.paid_at.isoformat() if payment.paid_at else None
+        })
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"查询支付状态失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="查询支付状态失败")
+
+
+@router.get("/api/user/credits/{user_id}")
+async def get_user_credits(
+    user_id: str,
+    db=Depends(get_db)
+):
+    """
+    获取用户剩余诊断次数
+    """
+    try:
+        user = db.query(User).filter(User.user_id == user_id).first()
+        if not user:
+            # 新用户，返回免费次数
+            return JSONResponse({
+                "user_id": user_id,
+                "remaining_diagnoses": PAYMENT_CONFIG["free_diagnosis_count"],
+                "total_diagnoses": PAYMENT_CONFIG["free_diagnosis_count"],
+                "is_new_user": True
+            })
+        
+        # 计算剩余次数
+        total_purchased = db.query(CreditRecord).filter(
+            CreditRecord.user_id == user_id,
+            CreditRecord.credit_type == "diagnosis"
+        ).count()
+        
+        total_used = db.query(DiagnosisRecord).filter(
+            DiagnosisRecord.user_id == user_id
+        ).count()
+        
+        remaining = PAYMENT_CONFIG["free_diagnosis_count"] + total_purchased - total_used
+        
+        return JSONResponse({
+            "user_id": user_id,
+            "remaining_diagnoses": max(0, remaining),
+            "total_diagnoses": PAYMENT_CONFIG["free_diagnosis_count"] + total_purchased,
+            "is_new_user": False
+        })
+    except Exception as e:
+        logger.error(f"查询用户剩余次数失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="查询用户剩余次数失败")

@@ -1,0 +1,468 @@
+/* ============================================================
+ * 升学日历页面样式表
+ * 定义日历网格、事件标记、关键节点高亮等样式
+ * 项目: cd-shengxuewa（成都K12升学参谋）
+ * 版本: 1.0.0
+ * 最后更新: 2024-01-20
+ * ============================================================ */
+
+/* ============================================================
+ * 日历容器
+ * ============================================================ */
+.calendar-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+.calendar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding: 15px 20px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 12px;
+    color: white;
+    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+}
+
+.calendar-header h1 {
+    margin: 0;
+    font-size: 1.8rem;
+    font-weight: 600;
+    letter-spacing: 1px;
+}
+
+.calendar-header .calendar-nav {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.calendar-header .calendar-nav button {
+    background: rgba(255, 255, 255, 0.2);
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    color: white;
+    padding: 8px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: all 0.3s ease;
+}
+
+.calendar-header .calendar-nav button:hover {
+    background: rgba(255, 255, 255, 0.3);
+    border-color: rgba(255, 255, 255, 0.5);
+    transform: translateY(-1px);
+}
+
+.calendar-header .calendar-nav .current-month {
+    font-size: 1.2rem;
+    font-weight: 500;
+    min-width: 150px;
+    text-align: center;
+}
+
+/* ============================================================
+ * 日历网格
+ * ============================================================ */
+.calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 2px;
+    background: #e8ecf1;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+}
+
+.calendar-grid .day-header {
+    background: #f0f2f5;
+    padding: 12px 8px;
+    text-align: center;
+    font-weight: 600;
+    color: #4a5568;
+    font-size: 0.9rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.calendar-grid .day-cell {
+    background: white;
+    min-height: 100px;
+    padding: 8px;
+    position: relative;
+    transition: background-color 0.2s ease;
+    cursor: pointer;
+}
+
+.calendar-grid .day-cell:hover {
+    background: #f7fafc;
+}
+
+.calendar-grid .day-cell.other-month {
+    background: #f8f9fa;
+    opacity: 0.5;
+}
+
+.calendar-grid .day-cell.today {
+    background: #ebf4ff;
+    border: 2px solid #667eea;
+}
+
+.calendar-grid .day-cell .day-number {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: #2d3748;
+    margin-bottom: 4px;
+}
+
+.calendar-grid .day-cell.today .day-number {
+    color: #667eea;
+    font-weight: 700;
+}
+
+/* ============================================================
+ * 事件标记
+ * ============================================================ */
+.calendar-grid .day-cell .event-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin: 1px;
+    transition: transform 0.2s ease;
+}
+
+.calendar-grid .day-cell .event-dot:hover {
+    transform: scale(1.5);
+}
+
+.calendar-grid .day-cell .event-dot.type-policy {
+    background: #48bb78;
+}
+
+.calendar-grid .day-cell .event-dot.type-exam {
+    background: #f56565;
+}
+
+.calendar-grid .day-cell .event-dot.type-registration {
+    background: #ed8936;
+}
+
+.calendar-grid .day-cell .event-dot.type-deadline {
+    background: #9f7aea;
+}
+
+.calendar-grid .day-cell .event-dot.type-consultation {
+    background: #4299e1;
+}
+
+.calendar-grid .day-cell .event-dot.type-other {
+    background: #a0aec0;
+}
+
+/* ============================================================
+ * 关键节点高亮
+ * ============================================================ */
+.calendar-grid .day-cell.key-node {
+    background: linear-gradient(135deg, #fff5f5 0%, #ffe0e0 100%);
+    border: 2px solid #fc8181;
+    box-shadow: 0 0 10px rgba(252, 129, 129, 0.3);
+}
+
+.calendar-grid .day-cell.key-node .day-number {
+    color: #c53030;
+    font-weight: 700;
+}
+
+.calendar-grid .day-cell.key-node::after {
+    content: "★";
+    position: absolute;
+    top: 4px;
+    right: 6px;
+    font-size: 12px;
+    color: #e53e3e;
+    animation: key-node-pulse 2s infinite;
+}
+
+@keyframes key-node-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.7; transform: scale(1.2); }
+}
+
+/* ============================================================
+ * 事件详情弹出框
+ * ============================================================ */
+.calendar-grid .day-cell .event-popup {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    padding: 12px;
+    min-width: 200px;
+    z-index: 100;
+    border: 1px solid #e2e8f0;
+}
+
+.calendar-grid .day-cell .event-popup.show {
+    display: block;
+}
+
+.calendar-grid .day-cell .event-popup .event-item {
+    padding: 6px 0;
+    border-bottom: 1px solid #f0f0f0;
+    font-size: 0.85rem;
+    color: #4a5568;
+}
+
+.calendar-grid .day-cell .event-popup .event-item:last-child {
+    border-bottom: none;
+}
+
+.calendar-grid .day-cell .event-popup .event-item .event-type {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    margin-right: 6px;
+}
+
+.calendar-grid .day-cell .event-popup .event-item .event-type.type-policy {
+    background: #c6f6d5;
+    color: #276749;
+}
+
+.calendar-grid .day-cell .event-popup .event-item .event-type.type-exam {
+    background: #fed7d7;
+    color: #9b2c2c;
+}
+
+.calendar-grid .day-cell .event-popup .event-item .event-type.type-registration {
+    background: #feebc8;
+    color: #9c4221;
+}
+
+.calendar-grid .day-cell .event-popup .event-item .event-type.type-deadline {
+    background: #e9d8fd;
+    color: #553c9a;
+}
+
+.calendar-grid .day-cell .event-popup .event-item .event-type.type-consultation {
+    background: #bee3f8;
+    color: #2a4365;
+}
+
+.calendar-grid .day-cell .event-popup .event-item .event-type.type-other {
+    background: #e2e8f0;
+    color: #4a5568;
+}
+
+/* ============================================================
+ * 图例
+ * ============================================================ */
+.calendar-legend {
+    display: flex;
+    gap: 20px;
+    justify-content: center;
+    margin-top: 20px;
+    padding: 15px;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    flex-wrap: wrap;
+}
+
+.calendar-legend .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.85rem;
+    color: #4a5568;
+}
+
+.calendar-legend .legend-item .legend-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+}
+
+.calendar-legend .legend-item .legend-dot.type-policy {
+    background: #48bb78;
+}
+
+.calendar-legend .legend-item .legend-dot.type-exam {
+    background: #f56565;
+}
+
+.calendar-legend .legend-item .legend-dot.type-registration {
+    background: #ed8936;
+}
+
+.calendar-legend .legend-item .legend-dot.type-deadline {
+    background: #9f7aea;
+}
+
+.calendar-legend .legend-item .legend-dot.type-consultation {
+    background: #4299e1;
+}
+
+.calendar-legend .legend-item .legend-dot.type-other {
+    background: #a0aec0;
+}
+
+.calendar-legend .legend-item .legend-star {
+    color: #e53e3e;
+    font-size: 14px;
+}
+
+/* ============================================================
+ * 响应式设计
+ * ============================================================ */
+@media (max-width: 768px) {
+    .calendar-container {
+        padding: 10px;
+    }
+
+    .calendar-header {
+        flex-direction: column;
+        gap: 10px;
+        padding: 12px 15px;
+    }
+
+    .calendar-header h1 {
+        font-size: 1.4rem;
+    }
+
+    .calendar-header .calendar-nav .current-month {
+        min-width: 120px;
+        font-size: 1rem;
+    }
+
+    .calendar-grid .day-cell {
+        min-height: 70px;
+        padding: 4px;
+    }
+
+    .calendar-grid .day-cell .day-number {
+        font-size: 0.8rem;
+    }
+
+    .calendar-grid .day-header {
+        padding: 8px 4px;
+        font-size: 0.75rem;
+    }
+
+    .calendar-grid .day-cell .event-popup {
+        min-width: 150px;
+        left: 0;
+        transform: none;
+    }
+
+    .calendar-legend {
+        gap: 10px;
+        padding: 10px;
+    }
+
+    .calendar-legend .legend-item {
+        font-size: 0.75rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .calendar-grid .day-cell {
+        min-height: 50px;
+    }
+
+    .calendar-grid .day-cell .event-dot {
+        width: 6px;
+        height: 6px;
+    }
+
+    .calendar-grid .day-cell.key-node::after {
+        font-size: 10px;
+        top: 2px;
+        right: 4px;
+    }
+}
+
+/* ============================================================
+ * 加载状态与空状态
+ * ============================================================ */
+.calendar-loading {
+    text-align: center;
+    padding: 40px;
+    color: #a0aec0;
+}
+
+.calendar-loading .spinner {
+    display: inline-block;
+    width: 40px;
+    height: 40px;
+    border: 4px solid #e2e8f0;
+    border-top-color: #667eea;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.calendar-empty {
+    text-align: center;
+    padding: 40px;
+    color: #a0aec0;
+    font-size: 1.1rem;
+}
+
+.calendar-empty .empty-icon {
+    font-size: 3rem;
+    margin-bottom: 10px;
+    display: block;
+}
+
+/* ============================================================
+ * 错误状态
+ * ============================================================ */
+.calendar-error {
+    text-align: center;
+    padding: 40px;
+    color: #e53e3e;
+    background: #fff5f5;
+    border-radius: 8px;
+    border: 1px solid #fed7d7;
+}
+
+.calendar-error .error-icon {
+    font-size: 2rem;
+    margin-bottom: 10px;
+    display: block;
+}
+
+.calendar-error .error-message {
+    font-size: 1rem;
+    margin-bottom: 15px;
+}
+
+.calendar-error .retry-btn {
+    background: #e53e3e;
+    color: white;
+    border: none;
+    padding: 8px 20px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: background 0.2s ease;
+}
+
+.calendar-error .retry-btn:hover {
+    background: #c53030;
+}
