@@ -2,7 +2,7 @@
  * payment.css — 付费相关样式
  * 项目: cd-shengxuewa（成都K12升学参谋）
  * 功能: 卡片样式、按钮、弹窗、余额显示
- * 版本: 1.0.0
+ * 版本: 2.0.0 — 按次诊断计费方案
  * ============================================================ */
 
 /* ============================================================
@@ -67,7 +67,7 @@
 }
 
 /* ============================================================
- * 2. 付费卡片样式
+ * 2. 付费卡片样式 — 按次诊断计费
  * ============================================================ */
 .pricing-card {
     background: #ffffff;
@@ -148,6 +148,14 @@
     margin-left: 4px;
 }
 
+/* 按次诊断计费 — 次数显示 */
+.price-count {
+    font-size: 14px;
+    color: #667eea;
+    font-weight: 500;
+    margin-top: 4px;
+}
+
 .pricing-card-features {
     list-style: none;
     padding: 0;
@@ -196,93 +204,52 @@
     cursor: pointer;
     transition: all 0.3s ease;
     width: 100%;
+    text-decoration: none;
     gap: 8px;
-    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
 }
 
 .btn-pay:hover {
     transform: translateY(-2px);
-    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
 }
 
 .btn-pay:active {
     transform: translateY(0);
-    box-shadow: 0 2px 10px rgba(102, 126, 234, 0.3);
 }
 
 .btn-pay:disabled {
     background: #ccc;
     cursor: not-allowed;
-    box-shadow: none;
     transform: none;
-}
-
-.btn-pay.loading {
-    position: relative;
-    color: transparent;
-}
-
-.btn-pay.loading::after {
-    content: '';
-    position: absolute;
-    width: 20px;
-    height: 20px;
-    border: 2px solid #ffffff;
-    border-top-color: transparent;
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-    to { transform: rotate(360deg); }
+    box-shadow: none;
 }
 
 .btn-pay-secondary {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 10px 24px;
     background: #ffffff;
     color: #667eea;
     border: 2px solid #667eea;
-    border-radius: 8px;
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.3s ease;
-    gap: 6px;
 }
 
 .btn-pay-secondary:hover {
-    background: #f0f2ff;
-    transform: translateY(-1px);
-}
-
-.btn-pay-secondary:active {
-    transform: translateY(0);
-}
-
-.btn-pay-small {
-    padding: 8px 20px;
-    font-size: 13px;
-    border-radius: 6px;
+    background: #f8f9ff;
+    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.2);
 }
 
 /* ============================================================
- * 4. 弹窗样式
+ * 4. 确认弹窗样式
  * ============================================================ */
 .modal-overlay {
     display: none;
     position: fixed;
     top: 0;
     left: 0;
-    right: 0;
-    bottom: 0;
+    width: 100%;
+    height: 100%;
     background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(4px);
     z-index: 1000;
     justify-content: center;
     align-items: center;
-    backdrop-filter: blur(4px);
     animation: fadeIn 0.3s ease;
 }
 
@@ -290,21 +257,162 @@
     display: flex;
 }
 
-@keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
-}
-
 .modal-content {
     background: #ffffff;
     border-radius: 20px;
     padding: 32px;
-    max-width: 480px;
+    max-width: 420px;
     width: 90%;
-    max-height: 90vh;
-    overflow-y: auto;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
     animation: slideUp 0.3s ease;
+    position: relative;
+}
+
+.modal-header {
+    text-align: center;
+    margin-bottom: 24px;
+}
+
+.modal-icon {
+    width: 64px;
+    height: 64px;
+    margin: 0 auto 16px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #ffffff;
+    font-size: 28px;
+}
+
+.modal-title {
+    font-size: 20px;
+    font-weight: 700;
+    color: #1a1a2e;
+    margin-bottom: 8px;
+}
+
+.modal-body {
+    text-align: center;
+    margin-bottom: 24px;
+}
+
+.modal-description {
+    font-size: 14px;
+    color: #666;
+    line-height: 1.6;
+    margin-bottom: 16px;
+}
+
+.modal-cost-summary {
+    background: #f8f9ff;
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 16px;
+}
+
+.modal-cost-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    font-size: 14px;
+    color: #555;
+}
+
+.modal-cost-item.total {
+    border-top: 1px solid #e0e0e0;
+    margin-top: 8px;
+    padding-top: 12px;
+    font-weight: 700;
+    color: #1a1a2e;
+    font-size: 16px;
+}
+
+.modal-cost-item .cost-value {
+    font-weight: 600;
+    color: #667eea;
+}
+
+.modal-actions {
+    display: flex;
+    gap: 12px;
+}
+
+.modal-actions .btn-pay {
+    flex: 1;
+}
+
+.modal-actions .btn-cancel {
+    flex: 1;
+    padding: 12px 32px;
+    background: #f0f0f0;
+    color: #666;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.modal-actions .btn-cancel:hover {
+    background: #e0e0e0;
+}
+
+/* ============================================================
+ * 5. 支付成功/失败状态
+ * ============================================================ */
+.payment-status {
+    text-align: center;
+    padding: 40px 20px;
+}
+
+.payment-status-icon {
+    width: 80px;
+    height: 80px;
+    margin: 0 auto 20px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 36px;
+}
+
+.payment-status-icon.success {
+    background: #e8f5e9;
+    color: #4caf50;
+}
+
+.payment-status-icon.fail {
+    background: #fbe9e7;
+    color: #f44336;
+}
+
+.payment-status-title {
+    font-size: 20px;
+    font-weight: 700;
+    color: #1a1a2e;
+    margin-bottom: 8px;
+}
+
+.payment-status-message {
+    font-size: 14px;
+    color: #666;
+    margin-bottom: 24px;
+}
+
+/* ============================================================
+ * 6. 动画
+ * ============================================================ */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
 }
 
 @keyframes slideUp {
@@ -318,248 +426,6 @@
     }
 }
 
-.modal-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 24px;
-    padding-bottom: 16px;
-    border-bottom: 1px solid #f0f0f0;
-}
-
-.modal-title {
-    font-size: 20px;
-    font-weight: 700;
-    color: #1a1a2e;
-}
-
-.modal-close {
-    width: 32px;
-    height: 32px;
-    border: none;
-    background: #f5f5f5;
-    border-radius: 50%;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 18px;
-    color: #888;
-    transition: all 0.2s ease;
-}
-
-.modal-close:hover {
-    background: #e8e8e8;
-    color: #333;
-}
-
-.modal-body {
-    margin-bottom: 24px;
-}
-
-.modal-footer {
-    display: flex;
-    gap: 12px;
-    justify-content: flex-end;
-    padding-top: 16px;
-    border-top: 1px solid #f0f0f0;
-}
-
-/* 支付确认弹窗 */
-.pay-confirm-info {
-    background: #f8f9ff;
-    border-radius: 12px;
-    padding: 20px;
-    margin-bottom: 20px;
-}
-
-.pay-confirm-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 8px 0;
-    font-size: 14px;
-}
-
-.pay-confirm-item:not(:last-child) {
-    border-bottom: 1px solid #eef0ff;
-}
-
-.pay-confirm-label {
-    color: #888;
-}
-
-.pay-confirm-value {
-    color: #1a1a2e;
-    font-weight: 600;
-}
-
-.pay-confirm-total {
-    font-size: 18px;
-    font-weight: 700;
-    color: #667eea;
-}
-
-/* 支付成功弹窗 */
-.pay-success-icon {
-    text-align: center;
-    margin-bottom: 20px;
-}
-
-.pay-success-icon svg {
-    width: 64px;
-    height: 64px;
-    color: #52c41a;
-}
-
-.pay-success-title {
-    text-align: center;
-    font-size: 22px;
-    font-weight: 700;
-    color: #1a1a2e;
-    margin-bottom: 8px;
-}
-
-.pay-success-desc {
-    text-align: center;
-    font-size: 14px;
-    color: #888;
-    margin-bottom: 24px;
-}
-
-/* ============================================================
- * 5. 支付表单样式
- * ============================================================ */
-.pay-form-group {
-    margin-bottom: 20px;
-}
-
-.pay-form-label {
-    display: block;
-    font-size: 14px;
-    font-weight: 600;
-    color: #333;
-    margin-bottom: 8px;
-}
-
-.pay-form-input {
-    width: 100%;
-    padding: 12px 16px;
-    border: 2px solid #e0e0e0;
-    border-radius: 8px;
-    font-size: 14px;
-    transition: all 0.3s ease;
-    outline: none;
-    box-sizing: border-box;
-}
-
-.pay-form-input:focus {
-    border-color: #667eea;
-    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-}
-
-.pay-form-input.error {
-    border-color: #ff4d4f;
-    box-shadow: 0 0 0 3px rgba(255, 77, 79, 0.1);
-}
-
-.pay-form-error {
-    color: #ff4d4f;
-    font-size: 12px;
-    margin-top: 4px;
-    display: none;
-}
-
-.pay-form-error.visible {
-    display: block;
-}
-
-/* ============================================================
- * 6. 支付记录列表
- * ============================================================ */
-.payment-history {
-    margin-top: 32px;
-}
-
-.payment-history-title {
-    font-size: 18px;
-    font-weight: 700;
-    color: #1a1a2e;
-    margin-bottom: 16px;
-    padding-bottom: 12px;
-    border-bottom: 2px solid #f0f0f0;
-}
-
-.payment-record {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 16px;
-    border-radius: 12px;
-    background: #fafafa;
-    margin-bottom: 8px;
-    transition: all 0.2s ease;
-}
-
-.payment-record:hover {
-    background: #f0f2ff;
-}
-
-.payment-record-info {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-
-.payment-record-type {
-    font-size: 14px;
-    font-weight: 600;
-    color: #1a1a2e;
-}
-
-.payment-record-time {
-    font-size: 12px;
-    color: #888;
-}
-
-.payment-record-amount {
-    font-size: 16px;
-    font-weight: 700;
-}
-
-.payment-record-amount.positive {
-    color: #52c41a;
-}
-
-.payment-record-amount.negative {
-    color: #ff4d4f;
-}
-
-.payment-record-status {
-    font-size: 12px;
-    padding: 4px 12px;
-    border-radius: 12px;
-    font-weight: 500;
-}
-
-.payment-record-status.success {
-    background: #f6ffed;
-    color: #52c41a;
-    border: 1px solid #b7eb8f;
-}
-
-.payment-record-status.pending {
-    background: #fffbe6;
-    color: #faad14;
-    border: 1px solid #ffe58f;
-}
-
-.payment-record-status.failed {
-    background: #fff2f0;
-    color: #ff4d4f;
-    border: 1px solid #ffccc7;
-}
-
 /* ============================================================
  * 7. 响应式适配
  * ============================================================ */
@@ -571,8 +437,9 @@
         padding: 20px;
     }
 
-    .balance-amount {
-        font-size: 24px;
+    .balance-actions {
+        width: 100%;
+        justify-content: center;
     }
 
     .pricing-card {
@@ -585,31 +452,17 @@
 
     .modal-content {
         padding: 24px;
-        width: 95%;
+        margin: 16px;
     }
 
-    .payment-record {
+    .modal-actions {
         flex-direction: column;
-        gap: 8px;
-        align-items: flex-start;
-    }
-
-    .payment-record-amount {
-        align-self: flex-end;
     }
 }
 
 @media (max-width: 480px) {
-    .balance-container {
-        padding: 16px;
-    }
-
     .balance-amount {
-        font-size: 20px;
-    }
-
-    .pricing-card {
-        padding: 16px;
+        font-size: 24px;
     }
 
     .pricing-card-title {
@@ -624,67 +477,4 @@
         padding: 10px 24px;
         font-size: 14px;
     }
-
-    .modal-content {
-        padding: 20px;
-    }
-
-    .modal-title {
-        font-size: 18px;
-    }
-}
-
-/* ============================================================
- * 8. 工具类
- * ============================================================ */
-.text-center {
-    text-align: center;
-}
-
-.mt-16 {
-    margin-top: 16px;
-}
-
-.mt-24 {
-    margin-top: 24px;
-}
-
-.mb-16 {
-    margin-bottom: 16px;
-}
-
-.mb-24 {
-    margin-bottom: 24px;
-}
-
-.flex {
-    display: flex;
-}
-
-.flex-col {
-    flex-direction: column;
-}
-
-.items-center {
-    align-items: center;
-}
-
-.justify-between {
-    justify-content: space-between;
-}
-
-.gap-8 {
-    gap: 8px;
-}
-
-.gap-12 {
-    gap: 12px;
-}
-
-.gap-16 {
-    gap: 16px;
-}
-
-.w-full {
-    width: 100%;
 }

@@ -164,11 +164,4 @@ pipeline:
     title:
       min_length: 12
       max_length: 18
-      required_elements: ["数字", "情绪词"]
-      forbidden_suffixes: ["实操指南", "避坑指南", "完全解读", "全面解析"]
-      max_xiaoshengchu_count: 1
-      
-    # 静态内容检测
-    static_keywords: ["养成计划", "30天", "习惯养成", "遛娃", "亲子互动", "不花钱的", "比手机管用", "暑假", "夏令营", "阅读计划"]
-    
-    # A
+      required_elements: ["数字", "成都", "升学"]

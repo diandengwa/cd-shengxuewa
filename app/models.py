@@ -74,6 +74,26 @@ class QuotaInfo(BaseModel):
     reports_remaining: int = 0
 
 
+class FamilyProfile(BaseModel):
+    """家庭画像扩展模型 — 包含按次诊断计费字段"""
+    # 基础信息
+    openid: str = ""
+    nickname: str = ""
+    plan: PlanType = PlanType.FREE
+    quota: QuotaInfo = Field(default_factory=QuotaInfo)
+    family_info: FamilyInfo = Field(default_factory=FamilyInfo)
+    
+    # 按次诊断计费：剩余诊断次数（默认0）
+    diagnosis_credits: int = Field(0, description="按次诊断剩余次数")
+    
+    # 月度免费查询使用情况
+    monthly_free_queries_used: int = Field(0, description="当月已用免费查询次数")
+    
+    # 时间戳
+    created_at: str = Field(default_factory=lambda: datetime.now().isoformat())
+    last_active: str = Field(default_factory=lambda: datetime.now().isoformat())
+
+
 class UserRecord(BaseModel):
     """用户记录 — data/users.json 的条目"""
     openid: str = ""
@@ -118,119 +138,3 @@ class PaymentRecord(BaseModel):
     description: str = Field("", description="商品描述")
     # 附加信息
     extra: Dict = Field(default_factory=dict, description="附加信息")
-
-
-# ============================================================
-# 诊断记录模型
-# ============================================================
-
-class DiagnosisRecord(BaseModel):
-    """诊断记录 — 记录每次诊断的详细信息"""
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="诊断记录唯一ID")
-    user_id: str = Field("", description="用户openid")
-    scenario: ScenarioType = ScenarioType.UNKNOWN
-    # 诊断输入
-    family_info: FamilyInfo = Field(default_factory=FamilyInfo, description="诊断时的家庭信息")
-    # 诊断结果
-    result: Dict = Field(default_factory=dict, description="诊断结果详情")
-    # 计费信息
-    credits_used: int = Field(1, description="消耗的诊断次数")
-    is_free: bool = Field(False, description="是否免费诊断")
-    # 时间戳
-    created_at: str = Field(default_factory=lambda: datetime.now().isoformat(), description="诊断时间")
-    # 关联支付记录（如果是付费诊断）
-    payment_id: Optional[str] = Field(None, description="关联的支付记录ID")
-
-
-# ============================================================
-# 商品定价模型
-# ============================================================
-
-class ProductPricing(BaseModel):
-    """商品定价配置"""
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="定价配置ID")
-    credits: int = Field(0, description="诊断次数")
-    price: float = Field(0.0, description="价格（元）")
-    description: str = Field("", description="商品描述")
-    is_active: bool = Field(True, description="是否启用")
-    created_at: str = Field(default_factory=lambda: datetime.now().isoformat(), description="创建时间")
-    updated_at: str = Field(default_factory=lambda: datetime.now().isoformat(), description="更新时间")
-
-
-# ============================================================
-# 数据持久化辅助函数
-# ============================================================
-
-def serialize_model(model: BaseModel) -> dict:
-    """将Pydantic模型序列化为字典（用于JSON存储）"""
-    return json.loads(model.json())
-
-
-def deserialize_model(data: dict, model_class: type) -> BaseModel:
-    """从字典反序列化为Pydantic模型"""
-    return model_class(**data)
-
-
-# ============================================================
-# 数据文件路径常量
-# ============================================================
-
-DATA_DIR = Path(__file__).parent.parent / "data"
-USERS_FILE = DATA_DIR / "users.json"
-PAYMENTS_FILE = DATA_DIR / "payments.json"
-DIAGNOSES_FILE = DATA_DIR / "diagnoses.json"
-PRICING_FILE = DATA_DIR / "pricing.json"
-
-
-def ensure_data_files():
-    """确保数据文件存在"""
-    DATA_DIR.mkdir(exist_ok=True)
-    
-    files = {
-        USERS_FILE: [],
-        PAYMENTS_FILE: [],
-        DIAGNOSES_FILE: [],
-        PRICING_FILE: [
-            {
-                "id": str(uuid.uuid4()),
-                "credits": 1,
-                "price": 9.9,
-                "description": "单次诊断",
-                "is_active": True,
-                "created_at": datetime.now().isoformat(),
-                "updated_at": datetime.now().isoformat()
-            },
-            {
-                "id": str(uuid.uuid4()),
-                "credits": 5,
-                "price": 39.9,
-                "description": "5次诊断包",
-                "is_active": True,
-                "created_at": datetime.now().isoformat(),
-                "updated_at": datetime.now().isoformat()
-            },
-            {
-                "id": str(uuid.uuid4()),
-                "credits": 10,
-                "price": 69.9,
-                "description": "10次诊断包",
-                "is_active": True,
-                "created_at": datetime.now().isoformat(),
-                "updated_at": datetime.now().isoformat()
-            }
-        ]
-    }
-    
-    for file_path, default_content in files.items():
-        if not file_path.exists():
-            with open(file_path, "w", encoding="utf-8") as f:
-                json.dump(default_content, f, ensure_ascii=False, indent=2)
-
-
-# 导入json模块（用于序列化）
-import json
-from pathlib import Path
-
-
-# 初始化数据文件
-ensure_data_files()

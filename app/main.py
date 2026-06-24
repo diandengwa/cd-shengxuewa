@@ -107,11 +107,11 @@ WECHAT_PAY_API_KEY = os.getenv("WECHAT_PAY_API_KEY", "")
 WECHAT_PAY_API_V3_KEY = os.getenv("WECHAT_PAY_API_V3_KEY", "")
 
 # ============================================================
-# 应用初始化
+# 创建 FastAPI 应用实例
 # ============================================================
 app = FastAPI(
     title="K12 Rocket v2.0 — 点灯蛙·成都K12升学参谋",
-    description="四步裁决引擎 + 配额系统 + 黑话翻译 + 微信OAuth + 按次诊断计费",
+    description="按次诊断计费方案 · 付费模式重构",
     version="2.0.0",
     docs_url="/docs" if K12_ENV != "production" else None,
     redoc_url="/redoc" if K12_ENV != "production" else None,
@@ -129,43 +129,47 @@ app.add_middleware(
 )
 
 if K12_ENV == "production":
+    allowed_hosts = os.getenv("K12_ALLOWED_HOSTS", "127.0.0.1,localhost")
     app.add_middleware(
         TrustedHostMiddleware,
-        allowed_hosts=[K12_HOST, "localhost", "127.0.0.1"],
+        allowed_hosts=[h.strip() for h in allowed_hosts.split(",")],
     )
 
 # ============================================================
-# 限流器
+# 限流配置
 # ============================================================
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-
-# ============================================================
-# 注册路由
-# ============================================================
-app.include_router(wechat_router, prefix="/api/wechat", tags=["微信OAuth"])
-app.include_router(payment_router, prefix="/api/payment", tags=["支付模块"])
-app.include_router(credits_router, prefix="/api/credits", tags=["积分模块"])
-app.include_router(policy_router, prefix="/api/policy", tags=["政策查询"])
-app.include_router(district_router, prefix="/api/district", tags=["学区查询"])
-app.include_router(calendar_router, prefix="/api/calendar", tags=["升学日历"])
-app.include_router(jargon_router, prefix="/api/jargon", tags=["升学黑话"])
-
 
 # ============================================================
 # 静态文件挂载
 # ============================================================
 static_dir = PROJECT_ROOT / "static"
-if static_dir.exists():
-    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
-    logger.info(f"静态文件目录已挂载: {static_dir}")
-else:
-    logger.warning(f"静态文件目录不存在: {static_dir}")
+static_dir.mkdir(exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
+# ============================================================
+# 新增：支付相关静态文件挂载（支付页面、支付成功/失败页面等）
+# ============================================================
+payment_static_dir = PROJECT_ROOT / "static" / "payment"
+payment_static_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/payment/static", StaticFiles(directory=str(payment_static_dir)), name="payment_static")
+
+# ============================================================
+# 注册路由
+# ============================================================
+app.include_router(wechat_router, prefix="/wechat", tags=["微信OAuth"])
+app.include_router(payment_router, prefix="/payment", tags=["支付管理"])
+app.include_router(credits_router, prefix="/credits", tags=["积分管理"])
+app.include_router(policy_router, prefix="/policy", tags=["政策查询"])
+app.include_router(district_router, prefix="/district", tags=["学区查询"])
+app.include_router(calendar_router, prefix="/calendar", tags=["升学日历"])
+app.include_router(jargon_router, prefix="/jargon", tags=["升学黑话"])
 
 
 # ============================================================
-# 健康检查端点
+# 健康检查接口
 # ============================================================
 @app.get("/health", response_model=HealthResponse, tags=["系统"])
 async def health_check():
@@ -179,161 +183,101 @@ async def health_check():
 
 
 # ============================================================
-# 诊断端点（核心功能）
+# 诊断接口（核心业务）
 # ============================================================
-@app.post("/api/diagnose", response_model=DiagnosisResult, tags=["诊断"])
+@app.post("/diagnose", response_model=DiagnosisResult, tags=["诊断"])
 @limiter.limit("10/minute")
 async def diagnose(request: Request, diagnosis_req: DiagnosisRequest):
     """
-    升学诊断 - 按次计费
-    每次诊断消耗1次配额，配额不足时返回错误
+    执行升学诊断（按次计费）
+    - 每次诊断消耗1次配额
+    - 配额不足时返回错误提示
     """
+    openid = diagnosis_req.openid or "anonymous"
+    logger.info(f"[诊断请求] openid={openid}, question={diagnosis_req.question[:50]}...")
+
+    # 检查配额（按次计费模式）
+    quota_ok, quota_msg = check_quota(openid, plan_type=PlanType.PER_DIAGNOSIS)
+    if not quota_ok:
+        logger.warning(f"[配额不足] openid={openid}, msg={quota_msg}")
+        raise HTTPException(status_code=402, detail=quota_msg)
+
+    # 执行诊断
     try:
-        # 获取用户信息
-        openid = request.headers.get("X-WeChat-OpenID", "")
-        if not openid:
-            raise HTTPException(status_code=401, detail="未授权，缺少微信OpenID")
-
-        # 检查配额
-        user = get_or_create_user(openid)
-        if user.remaining_quota <= 0:
-            raise HTTPException(
-                status_code=402,
-                detail="配额不足，请购买诊断次数",
-                headers={"X-Quota-Exhausted": "true"},
-            )
-
-        # 执行诊断
         result = generate_diagnosis(diagnosis_req)
-
-        # 扣除配额
-        user.remaining_quota -= 1
-        user.save()
-
-        # 记录诊断日志
-        logger.info(f"用户 {openid} 完成诊断，剩余配额: {user.remaining_quota}")
-
+        logger.info(f"[诊断成功] openid={openid}, result_id={result.id}")
         return result
-
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"诊断失败: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="诊断服务异常")
+        logger.error(f"[诊断失败] openid={openid}, error={str(e)}")
+        raise HTTPException(status_code=500, detail="诊断服务异常，请稍后重试")
 
 
 # ============================================================
-# 黑话翻译端点
+# 黑话翻译接口
 # ============================================================
-@app.post("/api/translate", response_model=JargonResult, tags=["黑话翻译"])
+@app.post("/translate", response_model=JargonResult, tags=["黑话翻译"])
 @limiter.limit("30/minute")
 async def translate(request: Request, jargon_req: JargonRequest):
     """升学黑话翻译"""
     try:
-        result = translate_jargon(jargon_req.text)
+        result = translate_jargon(jargon_req)
         return result
     except Exception as e:
-        logger.error(f"翻译失败: {str(e)}", exc_info=True)
+        logger.error(f"[翻译失败] error={str(e)}")
         raise HTTPException(status_code=500, detail="翻译服务异常")
 
 
 # ============================================================
-# 反馈端点
+# 反馈接口
 # ============================================================
-@app.post("/api/feedback", tags=["反馈"])
-@limiter.limit("5/minute")
-async def submit_feedback(request: Request, feedback: FeedbackRequest):
+@app.post("/feedback", tags=["反馈"])
+async def submit_feedback(feedback: FeedbackRequest):
     """提交用户反馈"""
     try:
-        # 保存反馈到数据库或文件
-        feedback_dir = PROJECT_ROOT / "data" / "feedback"
-        feedback_dir.mkdir(parents=True, exist_ok=True)
-
-        feedback_file = feedback_dir / f"feedback_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{secrets.token_hex(4)}.json"
-        with open(feedback_file, "w", encoding="utf-8") as f:
-            json.dump(feedback.dict(), f, ensure_ascii=False, indent=2)
-
-        logger.info(f"反馈已保存: {feedback_file}")
+        feedback_path = PROJECT_ROOT / "data" / "feedback.jsonl"
+        feedback_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(feedback_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(feedback.dict(), ensure_ascii=False) + "\n")
         return {"status": "ok", "message": "感谢您的反馈！"}
-
     except Exception as e:
-        logger.error(f"保存反馈失败: {str(e)}", exc_info=True)
+        logger.error(f"[反馈保存失败] error={str(e)}")
         raise HTTPException(status_code=500, detail="反馈提交失败")
 
 
 # ============================================================
-# 配额查询端点
+# 邀请码管理接口（管理员）
 # ============================================================
-@app.get("/api/quota", tags=["配额"])
-async def get_quota(request: Request):
-    """查询当前用户配额"""
-    try:
-        openid = request.headers.get("X-WeChat-OpenID", "")
-        if not openid:
-            raise HTTPException(status_code=401, detail="未授权")
-
-        user = get_or_create_user(openid)
-        return {
-            "openid": openid,
-            "remaining_quota": user.remaining_quota,
-            "total_quota": user.total_quota,
-            "plan": user.plan.value if hasattr(user, 'plan') else "free",
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"查询配额失败: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="查询配额失败")
+@app.post("/admin/codes/generate", tags=["管理员"])
+async def admin_generate_codes(
+    count: int = Query(10, ge=1, le=100),
+    plan_type: PlanType = PlanType.PER_DIAGNOSIS,
+    admin_key: str = Query(...),
+):
+    """生成邀请码（需要管理员密钥）"""
+    if not verify_admin(admin_key):
+        raise HTTPException(status_code=403, detail="管理员验证失败")
+    codes = generate_codes(count, plan_type)
+    return {"status": "ok", "codes": codes}
 
 
-# ============================================================
-# 微信支付回调通知
-# ============================================================
-@app.post("/api/payment/notify", tags=["支付"])
-async def payment_notify(request: Request):
-    """
-    微信支付结果通知回调
-    接收微信服务器发送的支付结果通知
-    """
-    try:
-        # 获取请求体
-        body = await request.body()
-        body_str = body.decode("utf-8")
-
-        # 解析微信回调通知
-        from app.payment import parse_wechat_notification
-        result = parse_wechat_notification(body_str)
-
-        if result.get("event_type") == "TRANSACTION.SUCCESS":
-            # 处理支付成功
-            resource = result.get("resource", {})
-            decrypt_result = decrypt_wechat_resource(resource)
-
-            if decrypt_result:
-                handle_payment_success(decrypt_result)
-                logger.info(f"支付成功处理完成: {decrypt_result.get('out_trade_no')}")
-            else:
-                logger.error("支付回调解密失败")
-
-        # 返回成功响应给微信服务器
-        return {"code": "SUCCESS", "message": "成功"}
-
-    except Exception as e:
-        logger.error(f"支付回调处理失败: {str(e)}", exc_info=True)
-        # 返回失败响应，微信会重试
-        return {"code": "FAIL", "message": "处理失败"}
+@app.post("/admin/codes/redeem", tags=["管理员"])
+async def admin_redeem_code(
+    code: str = Query(...),
+    openid: str = Query(...),
+    admin_key: str = Query(...),
+):
+    """兑换邀请码（管理员代兑）"""
+    if not verify_admin(admin_key):
+        raise HTTPException(status_code=403, detail="管理员验证失败")
+    result = redeem_code(code, openid)
+    return result
 
 
 # ============================================================
 # 启动入口
 # ============================================================
 if __name__ == "__main__":
-    logger.info(f"🚀 K12 Rocket v2.0 启动中...")
-    logger.info(f"环境: {K12_ENV}")
-    logger.info(f"监听: {K12_HOST}:{K12_PORT}")
-    logger.info(f"微信支付: {'已启用' if WECHAT_PAY_APPID else '未配置(模拟模式)'}")
-
+    logger.info(f"🚀 K12 Rocket v2.0 启动 | 环境={K12_ENV} | 地址={K12_HOST}:{K12_PORT}")
     uvicorn.run(
         "app.main:app",
         host=K12_HOST,

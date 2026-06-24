@@ -138,14 +138,13 @@ async def check_credit_balance(user_id: int, db: Session) -> CreditBalanceRespon
             )
         ).scalar() or 0
 
-        # 总余额 = 免费额度 + 付费额度
-        total_balance = free_credits + paid_credits
+        total_credits = free_credits + paid_credits
 
         return CreditBalanceResponse(
             user_id=user_id,
             free_credits=free_credits,
             paid_credits=paid_credits,
-            total_balance=total_balance,
+            total_credits=total_credits,
             daily_limit=FREE_DAILY_CREDITS
         )
 
@@ -160,19 +159,19 @@ async def check_credit_balance(user_id: int, db: Session) -> CreditBalanceRespon
 
 
 # ============================================================
-# 诊断次数管理（新增核心功能）
+# 诊断次数检查（新增）
 # ============================================================
 
-async def check_credits(user_id: int, db: Session) -> Tuple[bool, int, str]:
+async def check_diagnosis_credits(user_id: int, db: Session) -> Tuple[bool, str, int]:
     """
     检查用户是否有足够的诊断次数
-    返回: (是否有足够次数, 可用次数, 消息)
+    返回: (是否有足够次数, 提示信息, 可用次数)
     """
     try:
         # 获取用户信息
         user = db.query(User).filter(User.id == user_id).first()
         if not user:
-            return False, 0, "用户不存在"
+            return False, "用户不存在", 0
 
         # 获取免费额度
         free_credits = await get_free_daily_credits(user_id, db)
@@ -191,20 +190,24 @@ async def check_credits(user_id: int, db: Session) -> Tuple[bool, int, str]:
         total_credits = free_credits + paid_credits
 
         if total_credits >= DIAGNOSTIC_COST:
-            return True, total_credits, f"可用次数: {total_credits} (免费: {free_credits}, 付费: {paid_credits})"
+            return True, "额度充足", total_credits
         else:
-            return False, total_credits, f"次数不足，需要 {DIAGNOSTIC_COST} 次，当前可用 {total_credits} 次"
+            return False, f"额度不足，当前可用 {total_credits} 次，每次诊断需 {DIAGNOSTIC_COST} 次", total_credits
 
     except Exception as e:
         logger.error(f"检查诊断次数失败: {str(e)}", exc_info=True)
-        return False, 0, "检查诊断次数失败"
+        return False, "检查额度失败", 0
 
 
-async def consume_credits(user_id: int, db: Session) -> Tuple[bool, str]:
+# ============================================================
+# 诊断次数消耗（新增）
+# ============================================================
+
+async def consume_diagnosis_credit(user_id: int, db: Session, description: str = "诊断消耗") -> Tuple[bool, str]:
     """
     消耗一次诊断次数
-    优先消耗免费额度，再消耗付费额度
-    返回: (是否成功, 消息)
+    优先使用免费额度，再使用付费额度
+    返回: (是否成功, 提示信息)
     """
     try:
         # 检查用户是否存在
@@ -212,76 +215,44 @@ async def consume_credits(user_id: int, db: Session) -> Tuple[bool, str]:
         if not user:
             return False, "用户不存在"
 
-        # 检查是否有可用次数
-        has_credits, available, msg = await check_credits(user_id, db)
+        # 检查是否有足够额度
+        has_credits, message, _ = await check_diagnosis_credits(user_id, db)
         if not has_credits:
-            return False, f"诊断次数不足: {msg}"
+            return False, message
 
-        # 获取今日已使用的免费额度
-        today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-        today_end = today_start + timedelta(days=1)
-        used_free_today = db.query(func.count(CreditTransaction.id)).filter(
-            and_(
-                CreditTransaction.user_id == user_id,
-                CreditTransaction.transaction_type == "free",
-                CreditTransaction.created_at >= today_start,
-                CreditTransaction.created_at < today_end,
-                CreditTransaction.status == "completed"
-            )
-        ).scalar() or 0
+        # 获取今日免费额度
+        free_credits = await get_free_daily_credits(user_id, db)
 
         # 优先使用免费额度
-        if used_free_today < FREE_DAILY_CREDITS:
+        if free_credits >= DIAGNOSTIC_COST:
             # 使用免费额度
             transaction = CreditTransaction(
                 user_id=user_id,
                 amount=-DIAGNOSTIC_COST,
                 transaction_type="free",
-                description="免费诊断消耗",
+                description=description,
                 status="completed",
-                created_at=datetime.now(),
-                expires_at=None
+                created_at=datetime.now()
             )
             db.add(transaction)
-            logger.info(f"用户 {user_id} 使用免费额度进行诊断")
+            logger.info(f"用户 {user_id} 使用免费额度消耗 {DIAGNOSTIC_COST} 次诊断")
         else:
             # 使用付费额度
-            # 查找最早过期的付费额度进行消耗
-            paid_transaction = db.query(CreditTransaction).filter(
-                and_(
-                    CreditTransaction.user_id == user_id,
-                    CreditTransaction.transaction_type.in_(["purchase", "admin_add"]),
-                    CreditTransaction.status == "completed",
-                    CreditTransaction.expires_at > datetime.now(),
-                    CreditTransaction.amount > 0
-                )
-            ).order_by(CreditTransaction.expires_at.asc()).first()
-
-            if not paid_transaction:
-                return False, "无可用的付费额度"
-
-            # 创建消耗记录
             transaction = CreditTransaction(
                 user_id=user_id,
                 amount=-DIAGNOSTIC_COST,
-                transaction_type="diagnostic",
-                description="付费诊断消耗",
+                transaction_type="paid",
+                description=description,
                 status="completed",
-                created_at=datetime.now(),
-                expires_at=None
+                created_at=datetime.now()
             )
             db.add(transaction)
 
-            # 更新付费额度记录（减少可用次数）
-            paid_transaction.amount -= DIAGNOSTIC_COST
-            if paid_transaction.amount <= 0:
-                paid_transaction.status = "expired"
+            # 更新用户付费额度余额
+            user.credit_balance = max(0, (user.credit_balance or 0) - DIAGNOSTIC_COST)
+            user.updated_at = datetime.now()
 
-            logger.info(f"用户 {user_id} 使用付费额度进行诊断")
-
-        # 更新用户总余额
-        user.credit_balance = (user.credit_balance or 0) - DIAGNOSTIC_COST
-        user.updated_at = datetime.now()
+            logger.info(f"用户 {user_id} 使用付费额度消耗 {DIAGNOSTIC_COST} 次诊断")
 
         db.commit()
         return True, "诊断次数消耗成功"
@@ -292,13 +263,22 @@ async def consume_credits(user_id: int, db: Session) -> Tuple[bool, str]:
         return False, f"消耗诊断次数失败: {str(e)}"
 
 
-async def add_credits(user_id: int, amount: int, db: Session, 
-                      transaction_type: str = "admin_add", 
-                      description: str = "管理员手动增加") -> Tuple[bool, str]:
+# ============================================================
+# 增加诊断次数（新增）
+# ============================================================
+
+async def add_diagnosis_credits(
+    user_id: int,
+    amount: int,
+    db: Session,
+    transaction_type: str = "admin_add",
+    description: str = "管理员增加额度",
+    expires_in_days: Optional[int] = None
+) -> Tuple[bool, str]:
     """
     为用户增加诊断次数
-    支持管理员手动增加和购买增加
-    返回: (是否成功, 消息)
+    支持管理员手动增加、购买增加等场景
+    返回: (是否成功, 提示信息)
     """
     try:
         if amount <= 0:
@@ -309,7 +289,12 @@ async def add_credits(user_id: int, amount: int, db: Session,
         if not user:
             return False, "用户不存在"
 
-        # 创建增加记录
+        # 计算过期时间
+        if expires_in_days is None:
+            expires_in_days = CREDIT_EXPIRY_DAYS
+        expires_at = datetime.now() + timedelta(days=expires_in_days)
+
+        # 创建交易记录
         transaction = CreditTransaction(
             user_id=user_id,
             amount=amount,
@@ -317,17 +302,17 @@ async def add_credits(user_id: int, amount: int, db: Session,
             description=description,
             status="completed",
             created_at=datetime.now(),
-            expires_at=datetime.now() + timedelta(days=CREDIT_EXPIRY_DAYS)
+            expires_at=expires_at
         )
         db.add(transaction)
 
-        # 更新用户余额
+        # 更新用户额度
         user.credit_balance = (user.credit_balance or 0) + amount
         user.updated_at = datetime.now()
 
         db.commit()
-        logger.info(f"用户 {user_id} 增加 {amount} 次诊断次数，类型: {transaction_type}")
-        return True, f"成功增加 {amount} 次诊断次数"
+        logger.info(f"用户 {user_id} 增加 {amount} 次诊断额度，过期时间: {expires_at}")
+        return True, f"成功增加 {amount} 次诊断额度"
 
     except Exception as e:
         db.rollback()
@@ -336,72 +321,63 @@ async def add_credits(user_id: int, amount: int, db: Session,
 
 
 # ============================================================
-# 诊断次数查询接口（兼容旧版）
+# 获取免费额度剩余（新增）
 # ============================================================
 
-async def get_credit_summary(user_id: int, db: Session) -> dict:
+async def get_free_query_remaining(user_id: int, db: Session) -> int:
     """
-    获取用户诊断次数汇总信息
-    返回包含免费额度、付费额度、过期额度等详细信息
+    获取用户今日免费诊断剩余次数
+    返回剩余免费次数
     """
     try:
-        user = db.query(User).filter(User.id == user_id).first()
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="用户不存在"
-            )
-
-        now = datetime.now()
-
-        # 免费额度
         free_credits = await get_free_daily_credits(user_id, db)
-
-        # 有效付费额度
-        paid_credits = db.query(func.sum(CreditTransaction.amount)).filter(
-            and_(
-                CreditTransaction.user_id == user_id,
-                CreditTransaction.transaction_type.in_(["purchase", "admin_add"]),
-                CreditTransaction.status == "completed",
-                CreditTransaction.expires_at > now
-            )
-        ).scalar() or 0
-
-        # 已过期额度
-        expired_credits = db.query(func.sum(CreditTransaction.amount)).filter(
-            and_(
-                CreditTransaction.user_id == user_id,
-                CreditTransaction.transaction_type.in_(["purchase", "admin_add"]),
-                CreditTransaction.status == "completed",
-                CreditTransaction.expires_at <= now
-            )
-        ).scalar() or 0
-
-        # 总消耗次数
-        total_consumed = db.query(func.sum(CreditTransaction.amount)).filter(
-            and_(
-                CreditTransaction.user_id == user_id,
-                CreditTransaction.transaction_type.in_(["free", "diagnostic"]),
-                CreditTransaction.status == "completed",
-                CreditTransaction.amount < 0
-            )
-        ).scalar() or 0
-
-        return {
-            "user_id": user_id,
-            "free_credits": free_credits,
-            "paid_credits": paid_credits,
-            "expired_credits": expired_credits,
-            "total_consumed": abs(total_consumed),
-            "total_balance": free_credits + paid_credits,
-            "daily_limit": FREE_DAILY_CREDITS
-        }
-
-    except HTTPException:
-        raise
+        return free_credits
     except Exception as e:
-        logger.error(f"获取诊断次数汇总失败: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="获取诊断次数汇总失败"
+        logger.error(f"获取免费额度剩余失败: {str(e)}", exc_info=True)
+        return 0
+
+
+# ============================================================
+# 诊断次数扣减（兼容旧接口）
+# ============================================================
+
+async def deduct_credit(
+    user_id: int,
+    db: Session,
+    request: Optional[CreditDeductRequest] = None
+) -> CreditDeductResponse:
+    """
+    扣减用户诊断次数（兼容旧接口）
+    支持指定扣减数量，默认扣减1次
+    """
+    try:
+        deduct_amount = request.amount if request else DIAGNOSTIC_COST
+        description = request.description if request and request.description else "诊断消耗"
+
+        success, message = await consume_diagnosis_credit(user_id, db, description)
+
+        if success:
+            # 获取最新余额
+            balance = await check_credit_balance(user_id, db)
+            return CreditDeductResponse(
+                success=True,
+                message=message,
+                remaining_credits=balance.total_credits,
+                deducted_amount=deduct_amount
+            )
+        else:
+            return CreditDeductResponse(
+                success=False,
+                message=message,
+                remaining_credits=0,
+                deducted_amount=0
+            )
+
+    except Exception as e:
+        logger.error(f"扣减诊断次数失败: {str(e)}", exc_info=True)
+        return CreditDeductResponse(
+            success=False,
+            message=f"扣减失败: {str(e)}",
+            remaining_credits=0,
+            deducted_amount=0
         )

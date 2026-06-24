@@ -123,426 +123,548 @@ DISTRICT_KEYWORDS = [
 CORE_POLICY_PAGES = {
     ScenarioType.PRIMARY_TO_MIDDLE: [
         "wiki/policies/2026"
-    ]
+    ],
+    ScenarioType.KINDERGARTEN_TO_PRIMARY: [
+        "wiki/policies/2026"
+    ],
+    ScenarioType.TRANSFER: [
+        "wiki/policies/transfer"
+    ],
+    ScenarioType.MIDDLE_SCHOOL_EXAM: [
+        "wiki/policies/2026"
+    ],
 }
 
 # ============================================================
-# 支付相关数据模型
+# 辅助函数
 # ============================================================
 
-class CreateOrderRequest(BaseModel):
-    """创建支付订单请求"""
-    user_id: str = Field(..., description="用户ID")
-    amount: Decimal = Field(..., ge=0.01, description="支付金额（元）")
-    description: str = Field(default="升学诊断服务", description="订单描述")
+def generate_order_id(user_id: int) -> str:
+    """生成唯一订单ID"""
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    random_str = secrets.token_hex(4)
+    return f"ORD{timestamp}{user_id:06d}{random_str}"
 
-class CreateOrderResponse(BaseModel):
-    """创建支付订单响应"""
-    order_id: str = Field(..., description="订单号")
-    prepay_id: str = Field(..., description="微信预支付ID")
-    nonce_str: str = Field(..., description="随机字符串")
-    sign: str = Field(..., description="签名")
-    timestamp: int = Field(..., description="时间戳")
+def check_user_credit(user_id: int, db) -> Tuple[bool, int]:
+    """检查用户剩余诊断次数"""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        return False, 0
+    
+    # 计算已使用的诊断次数
+    used_count = db.query(DiagnosisRecord).filter(
+        DiagnosisRecord.user_id == user_id,
+        DiagnosisRecord.created_at >= datetime.now() - timedelta(days=30)
+    ).count()
+    
+    # 计算可用次数（免费次数 + 购买次数）
+    total_credits = user.free_diagnosis_count + user.purchased_diagnosis_count
+    remaining = total_credits - used_count
+    
+    return remaining > 0, max(0, remaining)
 
-class NotifyRequest(BaseModel):
-    """微信支付回调通知"""
-    return_code: str = Field(..., description="返回状态码")
-    return_msg: str = Field(default="", description="返回信息")
-    result_code: str = Field(default="", description="业务结果")
-    out_trade_no: str = Field(default="", description="商户订单号")
-    transaction_id: str = Field(default="", description="微信支付订单号")
-    total_fee: int = Field(default=0, description="订单金额（分）")
-    time_end: str = Field(default="", description="支付完成时间")
-    sign: str = Field(default="", description="签名")
-
-class BalanceResponse(BaseModel):
-    """余额查询响应"""
-    user_id: str = Field(..., description="用户ID")
-    total_diagnoses: int = Field(..., description="总诊断次数")
-    used_diagnoses: int = Field(..., description="已使用诊断次数")
-    remaining_diagnoses: int = Field(..., description="剩余诊断次数")
-    free_diagnoses_used: int = Field(..., description="已使用的免费诊断次数")
-
-class ConsumeRequest(BaseModel):
-    """消耗诊断次数请求"""
-    user_id: str = Field(..., description="用户ID")
-    diagnosis_id: str = Field(..., description="诊断记录ID")
-
-class ConsumeResponse(BaseModel):
-    """消耗诊断次数响应"""
-    success: bool = Field(..., description="是否成功")
-    remaining_diagnoses: int = Field(..., description="剩余诊断次数")
-    message: str = Field(default="", description="提示信息")
-
-
-# ============================================================
-# 支付相关辅助函数
-# ============================================================
-
-def generate_order_id() -> str:
-    """生成唯一订单号"""
-    now = datetime.now()
-    timestamp = now.strftime("%Y%m%d%H%M%S")
-    random_part = secrets.token_hex(4).upper()
-    return f"DX{timestamp}{random_part}"
-
-def generate_nonce_str() -> str:
-    """生成随机字符串"""
-    return secrets.token_hex(16)
-
-def generate_sign(params: Dict[str, Any], key: str) -> str:
-    """生成微信支付签名（MD5）"""
-    # 按字典序排序参数
-    sorted_params = sorted(params.items(), key=lambda x: x[0])
-    # 拼接字符串
-    sign_str = "&".join([f"{k}={v}" for k, v in sorted_params if v != "" and k != "sign"])
-    sign_str += f"&key={key}"
-    # MD5加密
-    return hashlib.md5(sign_str.encode("utf-8")).hexdigest().upper()
-
-def verify_wechat_signature(params: Dict[str, Any], key: str) -> bool:
-    """验证微信回调签名"""
-    sign = params.pop("sign", "")
-    if not sign:
+def deduct_credit(user_id: int, db) -> bool:
+    """扣除一次诊断次数"""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
         return False
-    expected_sign = generate_sign(params, key)
-    return sign == expected_sign
-
-def get_user_credit(db_session, user_id: str) -> Optional[CreditRecord]:
-    """获取用户信用记录"""
-    return db_session.query(CreditRecord).filter(CreditRecord.user_id == user_id).first()
-
-def create_user_credit(db_session, user_id: str) -> CreditRecord:
-    """创建用户信用记录"""
-    credit = CreditRecord(
-        user_id=user_id,
-        total_diagnoses=PAYMENT_CONFIG["free_diagnosis_count"],
-        used_diagnoses=0,
-        free_diagnoses_used=0,
-        created_at=datetime.now(),
-        updated_at=datetime.now()
-    )
-    db_session.add(credit)
-    db_session.commit()
-    return credit
-
-def check_diagnosis_availability(db_session, user_id: str) -> Tuple[bool, str]:
-    """检查用户是否有可用的诊断次数"""
-    credit = get_user_credit(db_session, user_id)
-    if not credit:
-        # 新用户，创建信用记录并返回可用
-        credit = create_user_credit(db_session, user_id)
-        return True, "新用户免费诊断次数可用"
     
-    if credit.remaining_diagnoses > 0:
-        return True, f"剩余诊断次数: {credit.remaining_diagnoses}"
+    # 优先使用免费次数
+    if user.free_diagnosis_count > 0:
+        user.free_diagnosis_count -= 1
+    elif user.purchased_diagnosis_count > 0:
+        user.purchased_diagnosis_count -= 1
+    else:
+        return False
     
-    return False, "诊断次数已用完，请充值"
-
+    db.commit()
+    return True
 
 # ============================================================
-# 支付路由
+# 支付相关路由
 # ============================================================
 
-@router.post("/api/payment/create", response_model=CreateOrderResponse)
+class PaymentCreateRequest(BaseModel):
+    """创建支付订单请求"""
+    user_id: int = Field(..., description="用户ID")
+    amount: Decimal = Field(default=Decimal("1.00"), description="支付金额")
+    payment_method: str = Field(default="wechat", description="支付方式")
+
+class PaymentCreateResponse(BaseModel):
+    """创建支付订单响应"""
+    order_id: str
+    amount: Decimal
+    status: str
+    qr_code_url: Optional[str] = None
+    expire_time: datetime
+
+class PaymentCallbackRequest(BaseModel):
+    """支付回调请求"""
+    order_id: str
+    transaction_id: str
+    status: str
+    amount: Decimal
+    sign: str
+
+@router.post("/payment/create", response_model=PaymentCreateResponse)
 async def create_payment_order(
-    request: CreateOrderRequest,
-    db_session = Depends(get_db)
+    request: PaymentCreateRequest,
+    db: Session = Depends(get_db)
 ):
     """
     创建支付订单
-    - 生成订单号
-    - 调用微信支付统一下单API
-    - 返回预支付信息
+    - 生成唯一订单号
+    - 记录支付记录
+    - 返回支付二维码
     """
     try:
-        # 验证用户是否存在
-        user = db_session.query(User).filter(User.user_id == request.user_id).first()
+        # 验证用户存在
+        user = db.query(User).filter(User.id == request.user_id).first()
         if not user:
             raise HTTPException(status_code=404, detail="用户不存在")
         
-        # 生成订单号
-        order_id = generate_order_id()
+        # 生成订单ID
+        order_id = generate_order_id(request.user_id)
         
-        # 计算金额（分）
-        total_fee = int(request.amount * 100)
+        # 计算过期时间
+        expire_time = datetime.now() + timedelta(minutes=PAYMENT_CONFIG["payment_expire_minutes"])
         
-        # 构建微信统一下单参数
-        nonce_str = generate_nonce_str()
-        timestamp = int(datetime.now().timestamp())
-        
-        # 模拟微信支付统一下单（实际应调用微信API）
-        # 这里模拟返回预支付ID
-        prepay_id = f"wx{secrets.token_hex(16)}"
-        
-        # 构建签名参数
-        sign_params = {
-            "appid": settings.WX_APPID,
-            "mch_id": settings.WX_MCHID,
-            "nonce_str": nonce_str,
-            "body": request.description,
-            "out_trade_no": order_id,
-            "total_fee": str(total_fee),
-            "spbill_create_ip": "127.0.0.1",
-            "notify_url": f"{settings.BASE_URL}/api/payment/notify",
-            "trade_type": "JSAPI",
-            "openid": user.openid,
-            "time_start": datetime.now().strftime("%Y%m%d%H%M%S"),
-            "time_expire": (datetime.now() + timedelta(minutes=PAYMENT_CONFIG["payment_expire_minutes"])).strftime("%Y%m%d%H%M%S"),
-        }
-        
-        # 生成签名
-        sign = generate_sign(sign_params, settings.WX_API_KEY)
-        
-        # 保存支付记录到数据库
+        # 创建支付记录
         payment_record = PaymentRecord(
             order_id=order_id,
             user_id=request.user_id,
             amount=request.amount,
-            total_fee=total_fee,
+            payment_method=request.payment_method,
             status="pending",
-            prepay_id=prepay_id,
-            nonce_str=nonce_str,
-            sign=sign,
-            description=request.description,
-            created_at=datetime.now(),
-            expire_at=datetime.now() + timedelta(minutes=PAYMENT_CONFIG["payment_expire_minutes"])
+            expire_time=expire_time,
+            created_at=datetime.now()
         )
-        db_session.add(payment_record)
-        db_session.commit()
+        db.add(payment_record)
+        db.commit()
         
-        logger.info(f"创建支付订单成功: order_id={order_id}, user_id={request.user_id}, amount={request.amount}")
+        # 生成支付二维码（模拟）
+        qr_code_url = f"https://api.example.com/qrcode/{order_id}"
         
-        return CreateOrderResponse(
+        return PaymentCreateResponse(
             order_id=order_id,
-            prepay_id=prepay_id,
-            nonce_str=nonce_str,
-            sign=sign,
-            timestamp=timestamp
+            amount=request.amount,
+            status="pending",
+            qr_code_url=qr_code_url,
+            expire_time=expire_time
         )
         
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"创建支付订单失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"创建支付订单失败: {str(e)}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail="创建支付订单失败")
 
-
-@router.post("/api/payment/notify")
-async def payment_notify(
-    request: Request,
-    db_session = Depends(get_db)
+@router.post("/payment/callback")
+async def payment_callback(
+    request: PaymentCallbackRequest,
+    db: Session = Depends(get_db)
 ):
     """
-    微信支付回调通知
+    支付回调处理
     - 验证签名
-    - 更新订单状态
+    - 更新支付状态
     - 增加用户诊断次数
     """
     try:
-        # 获取原始XML数据
-        body = await request.body()
-        xml_data = body.decode("utf-8")
+        # 验证签名（模拟）
+        expected_sign = hashlib.md5(
+            f"{request.order_id}{request.transaction_id}{request.amount}".encode()
+        ).hexdigest()
         
-        # 解析XML（简化处理，实际应使用xml.etree.ElementTree）
-        # 这里模拟解析结果
-        notify_data = {
-            "return_code": "SUCCESS",
-            "return_msg": "OK",
-            "result_code": "SUCCESS",
-            "out_trade_no": "",
-            "transaction_id": "",
-            "total_fee": "0",
-            "time_end": datetime.now().strftime("%Y%m%d%H%M%S"),
-            "sign": ""
-        }
+        if request.sign != expected_sign:
+            raise HTTPException(status_code=400, detail="签名验证失败")
         
-        # 实际应从XML中解析，这里简化处理
-        # 假设从请求中获取JSON数据
-        try:
-            json_data = await request.json()
-            notify_data.update(json_data)
-        except:
-            pass
+        # 查找支付记录
+        payment_record = db.query(PaymentRecord).filter(
+            PaymentRecord.order_id == request.order_id
+        ).first()
         
-        # 验证签名
-        if not verify_wechat_signature(notify_data, settings.WX_API_KEY):
-            logger.warning(f"微信回调签名验证失败: {notify_data}")
-            return {"return_code": "FAIL", "return_msg": "签名验证失败"}
+        if not payment_record:
+            raise HTTPException(status_code=404, detail="支付记录不存在")
         
-        # 检查支付结果
-        if notify_data.get("return_code") != "SUCCESS" or notify_data.get("result_code") != "SUCCESS":
-            logger.warning(f"微信回调支付失败: {notify_data}")
-            return {"return_code": "FAIL", "return_msg": "支付失败"}
+        if payment_record.status == "completed":
+            return {"status": "success", "message": "订单已处理"}
         
-        order_id = notify_data.get("out_trade_no", "")
-        transaction_id = notify_data.get("transaction_id", "")
-        total_fee = int(notify_data.get("total_fee", 0))
+        # 更新支付状态
+        payment_record.status = request.status
+        payment_record.transaction_id = request.transaction_id
+        payment_record.paid_at = datetime.now()
         
-        # 查询订单
-        payment_record = db_session.query(PaymentRecord).filter(
+        # 如果支付成功，增加用户诊断次数
+        if request.status == "completed":
+            user = db.query(User).filter(User.id == payment_record.user_id).first()
+            if user:
+                # 每1元增加1次诊断
+                diagnosis_count = int(payment_record.amount)
+                user.purchased_diagnosis_count += diagnosis_count
+                
+                # 记录信用变更
+                credit_record = CreditRecord(
+                    user_id=user.id,
+                    amount=diagnosis_count,
+                    type="purchase",
+                    description=f"购买{diagnosis_count}次诊断服务",
+                    created_at=datetime.now()
+                )
+                db.add(credit_record)
+        
+        db.commit()
+        
+        return {"status": "success", "message": "回调处理完成"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"支付回调处理失败: {str(e)}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail="支付回调处理失败")
+
+@router.get("/payment/status/{order_id}")
+async def get_payment_status(
+    order_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    查询支付状态
+    """
+    try:
+        payment_record = db.query(PaymentRecord).filter(
             PaymentRecord.order_id == order_id
         ).first()
         
         if not payment_record:
-            logger.error(f"订单不存在: {order_id}")
-            return {"return_code": "FAIL", "return_msg": "订单不存在"}
+            raise HTTPException(status_code=404, detail="订单不存在")
         
-        if payment_record.status == "paid":
-            logger.info(f"订单已支付，忽略重复通知: {order_id}")
-            return {"return_code": "SUCCESS", "return_msg": "OK"}
+        return {
+            "order_id": payment_record.order_id,
+            "status": payment_record.status,
+            "amount": payment_record.amount,
+            "created_at": payment_record.created_at,
+            "paid_at": payment_record.paid_at,
+            "expire_time": payment_record.expire_time
+        }
         
-        # 更新订单状态
-        payment_record.status = "paid"
-        payment_record.transaction_id = transaction_id
-        payment_record.paid_at = datetime.now()
-        payment_record.updated_at = datetime.now()
-        
-        # 计算购买次数（1元=1次）
-        buy_count = total_fee // 100  # 转换为元
-        
-        # 更新用户信用记录
-        credit = get_user_credit(db_session, payment_record.user_id)
-        if credit:
-            credit.total_diagnoses += buy_count
-            credit.updated_at = datetime.now()
-        else:
-            credit = CreditRecord(
-                user_id=payment_record.user_id,
-                total_diagnoses=buy_count,
-                used_diagnoses=0,
-                free_diagnoses_used=0,
-                created_at=datetime.now(),
-                updated_at=datetime.now()
-            )
-            db_session.add(credit)
-        
-        db_session.commit()
-        
-        logger.info(f"支付回调处理成功: order_id={order_id}, user_id={payment_record.user_id}, buy_count={buy_count}")
-        
-        return {"return_code": "SUCCESS", "return_msg": "OK"}
-        
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"支付回调处理失败: {str(e)}")
-        return {"return_code": "FAIL", "return_msg": f"处理失败: {str(e)}"}
+        logger.error(f"查询支付状态失败: {str(e)}")
+        raise HTTPException(status_code=500, detail="查询支付状态失败")
 
+# ============================================================
+# 诊断相关路由
+# ============================================================
 
-@router.get("/api/payment/balance", response_model=BalanceResponse)
-async def get_balance(
-    user_id: str = Query(..., description="用户ID"),
-    db_session = Depends(get_db)
+class DiagnosisRequest(BaseModel):
+    """诊断请求"""
+    user_id: int = Field(..., description="用户ID")
+    query: str = Field(..., description="用户查询内容")
+    scenario: Optional[str] = Field(None, description="场景类型")
+
+class DiagnosisResponse(BaseModel):
+    """诊断响应"""
+    diagnosis_id: int
+    scenario: str
+    result: Dict[str, Any]
+    remaining_credits: int
+    is_free: bool
+
+@router.post("/diagnosis", response_model=DiagnosisResponse)
+async def perform_diagnosis(
+    request: DiagnosisRequest,
+    db: Session = Depends(get_db)
 ):
     """
-    查询用户余额（诊断次数）
-    - 返回总次数、已使用次数、剩余次数
+    执行诊断
+    - 检查用户剩余次数
+    - 执行场景识别
+    - 返回诊断结果
     """
     try:
-        # 验证用户是否存在
-        user = db_session.query(User).filter(User.user_id == user_id).first()
+        # 检查用户信用
+        has_credit, remaining = check_user_credit(request.user_id, db)
+        if not has_credit:
+            raise HTTPException(
+                status_code=402,
+                detail="诊断次数不足，请购买诊断服务",
+                headers={"X-Remaining-Credits": str(remaining)}
+            )
+        
+        # 执行场景识别
+        scenario = identify_scenario(request.query)
+        
+        # 执行诊断逻辑
+        diagnosis_result = await execute_diagnosis(request.query, scenario, db)
+        
+        # 扣除诊断次数
+        if not deduct_credit(request.user_id, db):
+            raise HTTPException(status_code=500, detail="扣除诊断次数失败")
+        
+        # 记录诊断记录
+        diagnosis_record = DiagnosisRecord(
+            user_id=request.user_id,
+            scenario=scenario.value if scenario else "unknown",
+            query=request.query,
+            result=json.dumps(diagnosis_result, ensure_ascii=False),
+            created_at=datetime.now()
+        )
+        db.add(diagnosis_record)
+        db.commit()
+        
+        # 获取更新后的剩余次数
+        _, remaining = check_user_credit(request.user_id, db)
+        
+        return DiagnosisResponse(
+            diagnosis_id=diagnosis_record.id,
+            scenario=scenario.value if scenario else "unknown",
+            result=diagnosis_result,
+            remaining_credits=remaining,
+            is_free=False
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"执行诊断失败: {str(e)}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail="执行诊断失败")
+
+@router.get("/diagnosis/history/{user_id}")
+async def get_diagnosis_history(
+    user_id: int,
+    limit: int = Query(default=10, le=50),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db)
+):
+    """
+    获取诊断历史
+    """
+    try:
+        records = db.query(DiagnosisRecord).filter(
+            DiagnosisRecord.user_id == user_id
+        ).order_by(
+            DiagnosisRecord.created_at.desc()
+        ).offset(offset).limit(limit).all()
+        
+        return [
+            {
+                "id": record.id,
+                "scenario": record.scenario,
+                "query": record.query[:100],  # 截取前100字符
+                "result": json.loads(record.result) if record.result else {},
+                "created_at": record.created_at
+            }
+            for record in records
+        ]
+        
+    except Exception as e:
+        logger.error(f"获取诊断历史失败: {str(e)}")
+        raise HTTPException(status_code=500, detail="获取诊断历史失败")
+
+# ============================================================
+# 用户信用管理路由
+# ============================================================
+
+@router.get("/user/credits/{user_id}")
+async def get_user_credits(
+    user_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    获取用户诊断次数信息
+    """
+    try:
+        user = db.query(User).filter(User.id == user_id).first()
         if not user:
             raise HTTPException(status_code=404, detail="用户不存在")
         
-        # 获取用户信用记录
-        credit = get_user_credit(db_session, user_id)
-        if not credit:
-            # 新用户，返回默认值
-            return BalanceResponse(
-                user_id=user_id,
-                total_diagnoses=PAYMENT_CONFIG["free_diagnosis_count"],
-                used_diagnoses=0,
-                remaining_diagnoses=PAYMENT_CONFIG["free_diagnosis_count"],
-                free_diagnoses_used=0
-            )
+        has_credit, remaining = check_user_credit(user_id, db)
         
-        return BalanceResponse(
+        return {
+            "user_id": user_id,
+            "free_diagnosis_count": user.free_diagnosis_count,
+            "purchased_diagnosis_count": user.purchased_diagnosis_count,
+            "remaining_credits": remaining,
+            "has_credit": has_credit,
+            "diagnosis_price": PAYMENT_CONFIG["diagnosis_price"]
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取用户信用失败: {str(e)}")
+        raise HTTPException(status_code=500, detail="获取用户信用失败")
+
+@router.post("/user/credits/add")
+async def add_user_credits(
+    user_id: int = Form(...),
+    amount: int = Form(..., ge=1, le=100),
+    db: Session = Depends(get_db)
+):
+    """
+    管理员添加用户诊断次数
+    """
+    try:
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="用户不存在")
+        
+        user.purchased_diagnosis_count += amount
+        
+        credit_record = CreditRecord(
             user_id=user_id,
-            total_diagnoses=credit.total_diagnoses,
-            used_diagnoses=credit.used_diagnoses,
-            remaining_diagnoses=credit.remaining_diagnoses,
-            free_diagnoses_used=credit.free_diagnoses_used
+            amount=amount,
+            type="admin_add",
+            description=f"管理员添加{amount}次诊断次数",
+            created_at=datetime.now()
         )
+        db.add(credit_record)
+        db.commit()
+        
+        return {
+            "status": "success",
+            "user_id": user_id,
+            "added_amount": amount,
+            "total_purchased": user.purchased_diagnosis_count
+        }
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"查询余额失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"查询余额失败: {str(e)}")
-
-
-@router.post("/api/payment/consume", response_model=ConsumeResponse)
-async def consume_diagnosis(
-    request: ConsumeRequest,
-    db_session = Depends(get_db)
-):
-    """
-    消耗一次诊断次数
-    - 检查用户是否有可用次数
-    - 记录诊断消耗
-    - 更新用户信用记录
-    """
-    try:
-        # 验证用户是否存在
-        user = db_session.query(User).filter(User.user_id == request.user_id).first()
-        if not user:
-            raise HTTPException(status_code=404, detail="用户不存在")
-        
-        # 检查诊断记录是否存在
-        diagnosis = db_session.query(DiagnosisRecord).filter(
-            DiagnosisRecord.diagnosis_id == request.diagnosis_id
-        ).first()
-        if not diagnosis:
-            raise HTTPException(status_code=404, detail="诊断记录不存在")
-        
-        # 检查是否已经消耗过
-        if diagnosis.is_paid:
-            return ConsumeResponse(
-                success=True,
-                remaining_diagnoses=0,
-                message="该诊断已消耗过次数"
-            )
-        
-        # 检查用户是否有可用次数
-        available, message = check_diagnosis_availability(db_session, request.user_id)
-        if not available:
-            raise HTTPException(status_code=403, detail=message)
-        
-        # 获取用户信用记录
-        credit = get_user_credit(db_session, request.user_id)
-        if not credit:
-            credit = create_user_credit(db_session, request.user_id)
-        
-        # 更新信用记录
-        credit.used_diagnoses += 1
-        credit.updated_at = datetime.now()
-        
-        # 如果是免费次数，记录免费使用
-        if credit.free_diagnoses_used < PAYMENT_CONFIG["free_diagnosis_count"]:
-            credit.free_diagnoses_used += 1
-        
-        # 更新诊断记录
-        diagnosis.is_paid = True
-        diagnosis.paid_at = datetime.now()
-        
-        db_session.commit()
-        
-        logger.info(f"消耗诊断次数成功: user_id={request.user_id}, diagnosis_id={request.diagnosis_id}, remaining={credit.remaining_diagnoses}")
-        
-        return ConsumeResponse(
-            success=True,
-            remaining_diagnoses=credit.remaining_diagnoses,
-            message=f"诊断次数消耗成功，剩余{credit.remaining_diagnoses}次"
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"消耗诊断次数失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"消耗诊断次数失败: {str(e)}")
-
+        logger.error(f"添加用户信用失败: {str(e)}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail="添加用户信用失败")
 
 # ============================================================
-# 原有路由（保持不变）
+# 场景识别函数
 # ============================================================
 
-# ... 原有路由代码保持不变 ...
+def identify_scenario(query: str) -> Optional[ScenarioType]:
+    """
+    识别用户查询的场景类型
+    """
+    if not query:
+        return None
+    
+    # 强信号匹配
+    for signal, scenario in STRONG_SIGNALS.items():
+        if signal in query:
+            return scenario
+    
+    # 关键词匹配
+    for scenario, keywords in SCENARIO_KEYWORDS.items():
+        for keyword in keywords:
+            if keyword in query:
+                return scenario
+    
+    # 组合规则匹配
+    for scenario, rules in COMBO_RULES.items():
+        for rule in rules:
+            if all(keyword in query for keyword in rule):
+                return scenario
+    
+    return None
+
+async def execute_diagnosis(query: str, scenario: Optional[ScenarioType], db: Session) -> Dict[str, Any]:
+    """
+    执行诊断逻辑
+    """
+    result = {
+        "query": query,
+        "scenario": scenario.value if scenario else "unknown",
+        "analysis": {},
+        "recommendations": []
+    }
+    
+    if scenario == ScenarioType.KINDERGARTEN_TO_PRIMARY:
+        result["analysis"] = {
+            "type": "幼升小",
+            "key_points": ["入学年龄", "户籍要求", "划片范围", "报名时间"],
+            "district_info": extract_district_info(query)
+        }
+        result["recommendations"] = [
+            "查看目标小学的划片范围",
+            "确认入学年龄要求",
+            "准备相关报名材料"
+        ]
+        
+    elif scenario == ScenarioType.PRIMARY_TO_MIDDLE:
+        result["analysis"] = {
+            "type": "小升初",
+            "key_points": ["对口初中", "大摇号", "民办摇号", "指标到校"],
+            "district_info": extract_district_info(query)
+        }
+        result["recommendations"] = [
+            "查询对口初中信息",
+            "了解大摇号政策",
+            "准备升学材料"
+        ]
+        
+    elif scenario == ScenarioType.TRANSFER:
+        result["analysis"] = {
+            "type": "随迁入学",
+            "key_points": ["居住证", "社保要求", "积分政策", "材料清单"],
+            "district_info": extract_district_info(query)
+        }
+        result["recommendations"] = [
+            "确认居住证是否有效",
+            "检查社保缴纳情况",
+            "准备随迁入学材料"
+        ]
+        
+    elif scenario == ScenarioType.MIDDLE_SCHOOL_EXAM:
+        result["analysis"] = {
+            "type": "中考",
+            "key_points": ["录取分数线", "志愿填报", "指标到校", "普高线"],
+            "district_info": extract_district_info(query)
+        }
+        result["recommendations"] = [
+            "查询历年录取分数线",
+            "了解志愿填报规则",
+            "关注指标到校政策"
+        ]
+        
+    else:
+        result["analysis"] = {
+            "type": "通用咨询",
+            "key_points": ["政策咨询", "升学规划"],
+            "district_info": extract_district_info(query)
+        }
+        result["recommendations"] = [
+            "查看相关政策页面",
+            "咨询升学规划师"
+        ]
+    
+    return result
+
+def extract_district_info(query: str) -> Dict[str, Any]:
+    """
+    提取查询中的区域信息
+    """
+    districts_found = []
+    for district in DISTRICT_KEYWORDS:
+        if district in query:
+            districts_found.append(district)
+    
+    return {
+        "districts": districts_found,
+        "has_district": len(districts_found) > 0
+    }
+
+# ============================================================
+# 健康检查
+# ============================================================
+
+@router.get("/health")
+async def health_check():
+    """健康检查接口"""
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "version": "2.1.0"
+    }
