@@ -1,0 +1,690 @@
+/* ============================================================
+ * payment.css — 付费相关样式
+ * 项目: cd-shengxuewa（成都K12升学参谋）
+ * 功能: 卡片样式、按钮、弹窗、余额显示
+ * 版本: 1.0.0
+ * ============================================================ */
+
+/* ============================================================
+ * 1. 余额显示区域
+ * ============================================================ */
+.balance-container {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 12px;
+    color: #ffffff;
+    margin-bottom: 24px;
+    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+}
+
+.balance-label {
+    font-size: 14px;
+    opacity: 0.9;
+    font-weight: 500;
+}
+
+.balance-amount {
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: 1px;
+}
+
+.balance-unit {
+    font-size: 14px;
+    font-weight: 400;
+    opacity: 0.8;
+    margin-left: 4px;
+}
+
+.balance-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.balance-btn {
+    padding: 6px 16px;
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.15);
+    color: #ffffff;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    backdrop-filter: blur(4px);
+}
+
+.balance-btn:hover {
+    background: rgba(255, 255, 255, 0.3);
+    border-color: rgba(255, 255, 255, 0.6);
+    transform: translateY(-1px);
+}
+
+.balance-btn:active {
+    transform: translateY(0);
+}
+
+/* ============================================================
+ * 2. 付费卡片样式
+ * ============================================================ */
+.pricing-card {
+    background: #ffffff;
+    border-radius: 16px;
+    padding: 24px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+    transition: all 0.3s ease;
+    border: 2px solid transparent;
+    position: relative;
+    overflow: hidden;
+}
+
+.pricing-card:hover {
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+    transform: translateY(-4px);
+}
+
+.pricing-card.recommended {
+    border-color: #667eea;
+    background: linear-gradient(180deg, #f8f9ff 0%, #ffffff 100%);
+}
+
+.pricing-card.recommended::before {
+    content: '推荐';
+    position: absolute;
+    top: 12px;
+    right: -32px;
+    background: #667eea;
+    color: #ffffff;
+    padding: 4px 40px;
+    font-size: 12px;
+    font-weight: 600;
+    transform: rotate(45deg);
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+}
+
+.pricing-card-header {
+    text-align: center;
+    padding-bottom: 20px;
+    border-bottom: 1px solid #f0f0f0;
+    margin-bottom: 20px;
+}
+
+.pricing-card-title {
+    font-size: 20px;
+    font-weight: 700;
+    color: #1a1a2e;
+    margin-bottom: 8px;
+}
+
+.pricing-card-subtitle {
+    font-size: 14px;
+    color: #888;
+    font-weight: 400;
+}
+
+.pricing-card-price {
+    text-align: center;
+    padding: 20px 0;
+}
+
+.price-amount {
+    font-size: 36px;
+    font-weight: 800;
+    color: #1a1a2e;
+}
+
+.price-currency {
+    font-size: 18px;
+    font-weight: 600;
+    color: #666;
+    vertical-align: super;
+}
+
+.price-unit {
+    font-size: 14px;
+    color: #888;
+    margin-left: 4px;
+}
+
+.pricing-card-features {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 24px 0;
+}
+
+.pricing-card-features li {
+    padding: 8px 0;
+    font-size: 14px;
+    color: #555;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.pricing-card-features li::before {
+    content: '✓';
+    color: #667eea;
+    font-weight: 700;
+    font-size: 16px;
+}
+
+.pricing-card-features li.disabled {
+    color: #ccc;
+}
+
+.pricing-card-features li.disabled::before {
+    content: '✗';
+    color: #e0e0e0;
+}
+
+/* ============================================================
+ * 3. 付费按钮样式
+ * ============================================================ */
+.btn-pay {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 12px 32px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: #ffffff;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    width: 100%;
+    gap: 8px;
+    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+}
+
+.btn-pay:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+}
+
+.btn-pay:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 10px rgba(102, 126, 234, 0.3);
+}
+
+.btn-pay:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+    box-shadow: none;
+    transform: none;
+}
+
+.btn-pay.loading {
+    position: relative;
+    color: transparent;
+}
+
+.btn-pay.loading::after {
+    content: '';
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    border: 2px solid #ffffff;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.btn-pay-secondary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 24px;
+    background: #ffffff;
+    color: #667eea;
+    border: 2px solid #667eea;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    gap: 6px;
+}
+
+.btn-pay-secondary:hover {
+    background: #f0f2ff;
+    transform: translateY(-1px);
+}
+
+.btn-pay-secondary:active {
+    transform: translateY(0);
+}
+
+.btn-pay-small {
+    padding: 8px 20px;
+    font-size: 13px;
+    border-radius: 6px;
+}
+
+/* ============================================================
+ * 4. 弹窗样式
+ * ============================================================ */
+.modal-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 1000;
+    justify-content: center;
+    align-items: center;
+    backdrop-filter: blur(4px);
+    animation: fadeIn 0.3s ease;
+}
+
+.modal-overlay.active {
+    display: flex;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.modal-content {
+    background: #ffffff;
+    border-radius: 20px;
+    padding: 32px;
+    max-width: 480px;
+    width: 90%;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+    animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.modal-title {
+    font-size: 20px;
+    font-weight: 700;
+    color: #1a1a2e;
+}
+
+.modal-close {
+    width: 32px;
+    height: 32px;
+    border: none;
+    background: #f5f5f5;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    color: #888;
+    transition: all 0.2s ease;
+}
+
+.modal-close:hover {
+    background: #e8e8e8;
+    color: #333;
+}
+
+.modal-body {
+    margin-bottom: 24px;
+}
+
+.modal-footer {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+    padding-top: 16px;
+    border-top: 1px solid #f0f0f0;
+}
+
+/* 支付确认弹窗 */
+.pay-confirm-info {
+    background: #f8f9ff;
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+.pay-confirm-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    font-size: 14px;
+}
+
+.pay-confirm-item:not(:last-child) {
+    border-bottom: 1px solid #eef0ff;
+}
+
+.pay-confirm-label {
+    color: #888;
+}
+
+.pay-confirm-value {
+    color: #1a1a2e;
+    font-weight: 600;
+}
+
+.pay-confirm-total {
+    font-size: 18px;
+    font-weight: 700;
+    color: #667eea;
+}
+
+/* 支付成功弹窗 */
+.pay-success-icon {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.pay-success-icon svg {
+    width: 64px;
+    height: 64px;
+    color: #52c41a;
+}
+
+.pay-success-title {
+    text-align: center;
+    font-size: 22px;
+    font-weight: 700;
+    color: #1a1a2e;
+    margin-bottom: 8px;
+}
+
+.pay-success-desc {
+    text-align: center;
+    font-size: 14px;
+    color: #888;
+    margin-bottom: 24px;
+}
+
+/* ============================================================
+ * 5. 支付表单样式
+ * ============================================================ */
+.pay-form-group {
+    margin-bottom: 20px;
+}
+
+.pay-form-label {
+    display: block;
+    font-size: 14px;
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 8px;
+}
+
+.pay-form-input {
+    width: 100%;
+    padding: 12px 16px;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    font-size: 14px;
+    transition: all 0.3s ease;
+    outline: none;
+    box-sizing: border-box;
+}
+
+.pay-form-input:focus {
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.pay-form-input.error {
+    border-color: #ff4d4f;
+    box-shadow: 0 0 0 3px rgba(255, 77, 79, 0.1);
+}
+
+.pay-form-error {
+    color: #ff4d4f;
+    font-size: 12px;
+    margin-top: 4px;
+    display: none;
+}
+
+.pay-form-error.visible {
+    display: block;
+}
+
+/* ============================================================
+ * 6. 支付记录列表
+ * ============================================================ */
+.payment-history {
+    margin-top: 32px;
+}
+
+.payment-history-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: #1a1a2e;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 2px solid #f0f0f0;
+}
+
+.payment-record {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px;
+    border-radius: 12px;
+    background: #fafafa;
+    margin-bottom: 8px;
+    transition: all 0.2s ease;
+}
+
+.payment-record:hover {
+    background: #f0f2ff;
+}
+
+.payment-record-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.payment-record-type {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1a1a2e;
+}
+
+.payment-record-time {
+    font-size: 12px;
+    color: #888;
+}
+
+.payment-record-amount {
+    font-size: 16px;
+    font-weight: 700;
+}
+
+.payment-record-amount.positive {
+    color: #52c41a;
+}
+
+.payment-record-amount.negative {
+    color: #ff4d4f;
+}
+
+.payment-record-status {
+    font-size: 12px;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-weight: 500;
+}
+
+.payment-record-status.success {
+    background: #f6ffed;
+    color: #52c41a;
+    border: 1px solid #b7eb8f;
+}
+
+.payment-record-status.pending {
+    background: #fffbe6;
+    color: #faad14;
+    border: 1px solid #ffe58f;
+}
+
+.payment-record-status.failed {
+    background: #fff2f0;
+    color: #ff4d4f;
+    border: 1px solid #ffccc7;
+}
+
+/* ============================================================
+ * 7. 响应式适配
+ * ============================================================ */
+@media (max-width: 768px) {
+    .balance-container {
+        flex-direction: column;
+        gap: 12px;
+        text-align: center;
+        padding: 20px;
+    }
+
+    .balance-amount {
+        font-size: 24px;
+    }
+
+    .pricing-card {
+        padding: 20px;
+    }
+
+    .price-amount {
+        font-size: 28px;
+    }
+
+    .modal-content {
+        padding: 24px;
+        width: 95%;
+    }
+
+    .payment-record {
+        flex-direction: column;
+        gap: 8px;
+        align-items: flex-start;
+    }
+
+    .payment-record-amount {
+        align-self: flex-end;
+    }
+}
+
+@media (max-width: 480px) {
+    .balance-container {
+        padding: 16px;
+    }
+
+    .balance-amount {
+        font-size: 20px;
+    }
+
+    .pricing-card {
+        padding: 16px;
+    }
+
+    .pricing-card-title {
+        font-size: 18px;
+    }
+
+    .price-amount {
+        font-size: 24px;
+    }
+
+    .btn-pay {
+        padding: 10px 24px;
+        font-size: 14px;
+    }
+
+    .modal-content {
+        padding: 20px;
+    }
+
+    .modal-title {
+        font-size: 18px;
+    }
+}
+
+/* ============================================================
+ * 8. 工具类
+ * ============================================================ */
+.text-center {
+    text-align: center;
+}
+
+.mt-16 {
+    margin-top: 16px;
+}
+
+.mt-24 {
+    margin-top: 24px;
+}
+
+.mb-16 {
+    margin-bottom: 16px;
+}
+
+.mb-24 {
+    margin-bottom: 24px;
+}
+
+.flex {
+    display: flex;
+}
+
+.flex-col {
+    flex-direction: column;
+}
+
+.items-center {
+    align-items: center;
+}
+
+.justify-between {
+    justify-content: space-between;
+}
+
+.gap-8 {
+    gap: 8px;
+}
+
+.gap-12 {
+    gap: 12px;
+}
+
+.gap-16 {
+    gap: 16px;
+}
+
+.w-full {
+    width: 100%;
+}

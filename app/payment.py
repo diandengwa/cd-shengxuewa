@@ -1,25 +1,40 @@
+"""
+微信支付V3核心模块：统一下单、回调验签、订单查询、退款接口
+复用现有wechat.py的OAuth能力，新增支付相关API
+"""
+
 import os
 import time
 import base64
 import json
 import secrets
 import logging
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict, Any
+from datetime import datetime, timedelta
+from urllib.parse import urlencode
+
+import httpx
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives import hashes, serialization
+from fastapi import Request, HTTPException
+from pydantic import BaseModel
+
 from .models import PlanType
 from .invite_codes import confirm_order
 from .quota import upgrade_plan, get_or_create_user
 
 logger = logging.getLogger("k12_rocket.payment")
 
+# ============================================================
 # 微信支付 V3 商户配置
+# ============================================================
 MCH_ID = os.getenv("WECHAT_MCH_ID", "")
 SERIAL_NO = os.getenv("WECHAT_PAY_SERIAL_NO", "")
 API_KEY = os.getenv("WECHAT_PAY_API_KEY", "")  # APIv3 密钥 (32字节)
-PRIVATE_KEY_VAL = os.getenv("WECHAT_PAY_PRIVATE_KEY", "") # 商户 API 私钥文本 (PEM)
+PRIVATE_KEY_VAL = os.getenv("WECHAT_PAY_PRIVATE_KEY", "")  # 商户 API 私钥文本 (PEM)
 NOTIFY_URL = os.getenv("WECHAT_PAY_NOTIFY_URL", "")
+PLATFORM_CERT_SERIAL = os.getenv("WECHAT_PLATFORM_CERT_SERIAL", "")  # 平台证书序列号
 
 # 判断是否启用 Mock 模式：若没有配置证书或私钥，系统自动进入 Mock 模式运行以供测试
 IS_MOCK_PAY = (not MCH_ID or not SERIAL_NO or not API_KEY or not PRIVATE_KEY_VAL)
@@ -34,6 +49,38 @@ else:
     logger.info("[Payment] 微信支付商户证书载入成功，以真实模式运行。")
 
 
+# ============================================================
+# 数据模型
+# ============================================================
+class UnifiedOrderRequest(BaseModel):
+    """统一下单请求参数"""
+    openid: str
+    description: str
+    amount: int  # 单位：分
+    out_trade_no: str
+    attach: Optional[str] = None
+    goods_tag: Optional[str] = None
+
+
+class RefundRequest(BaseModel):
+    """退款请求参数"""
+    out_trade_no: str
+    out_refund_no: str
+    amount: int  # 退款金额，单位：分
+    total_amount: int  # 原订单金额，单位：分
+    reason: Optional[str] = None
+
+
+class PaymentResult(BaseModel):
+    """支付结果"""
+    success: bool
+    message: str
+    data: Optional[Dict[str, Any]] = None
+
+
+# ============================================================
+# 核心加密/签名工具函数
+# ============================================================
 def decrypt_wechat_resource(ciphertext: str, nonce: str, associated_data: str) -> Optional[dict]:
     """
     AES-256-GCM 密文解密（微信支付回调通知）
@@ -41,16 +88,16 @@ def decrypt_wechat_resource(ciphertext: str, nonce: str, associated_data: str) -
     if not API_KEY:
         logger.error("[Payment] 未配置 API_KEY，无法解密")
         return None
-        
+
     try:
         key_bytes = API_KEY.encode('utf-8')
         nonce_bytes = nonce.encode('utf-8')
         aad_bytes = associated_data.encode('utf-8') if associated_data else None
         raw_ciphertext = base64.b64decode(ciphertext)
-        
+
         aesgcm = AESGCM(key_bytes)
         decrypted_bytes = aesgcm.decrypt(nonce_bytes, raw_ciphertext, aad_bytes)
-        
+
         result_str = decrypted_bytes.decode('utf-8')
         return json.loads(result_str)
     except Exception as e:
@@ -69,7 +116,7 @@ def _load_private_key():
                     pem_content = f.read()
             except IOError as e:
                 logger.error(f"[Payment] 无法从文件 {pem_content} 读取私钥: {e}")
-                
+
         pem_data = pem_content.replace("\\n", "\n").encode("utf-8")
         if not pem_data.startswith(b"-----BEGIN PRIVATE KEY-----"):
             # 如果没有包含头部，自动补齐
@@ -104,7 +151,7 @@ def generate_jsapi_pay_params(prepay_id: str) -> dict:
     timestamp = str(int(time.time()))
     nonce_str = secrets.token_hex(16)
     package_val = f"prepay_id={prepay_id}"
-    
+
     if IS_MOCK_PAY:
         # Mock 模式下，虚拟签名直接返回一段 Mock 串
         return {
@@ -115,11 +162,11 @@ def generate_jsapi_pay_params(prepay_id: str) -> dict:
             "signType": "RSA",
             "paySign": f"MOCK_SIGN_FOR_PREPAY_{prepay_id}_{timestamp}"
         }
-    
-    # 真实模式下，按微信支付 V3 规范生成签名
+
+    # 构造签名串
     sign_str = f"{APPID}\n{timestamp}\n{nonce_str}\n{package_val}\n"
     pay_sign = sign_sha256_with_rsa(sign_str)
-    
+
     return {
         "appId": APPID,
         "timeStamp": timestamp,
@@ -130,505 +177,551 @@ def generate_jsapi_pay_params(prepay_id: str) -> dict:
     }
 
 
-def create_unified_order(
-    openid: str,
-    description: str,
-    amount: int,
-    out_trade_no: str,
-    attach: Optional[str] = None
-) -> Tuple[bool, Optional[str], Optional[str]]:
+def build_authorization_header(method: str, url_path: str, body: str = "") -> str:
     """
-    微信支付统一下单（JSAPI 支付）
-    
-    Args:
-        openid: 用户微信 OpenID
-        description: 商品描述
-        amount: 订单金额（单位：分）
-        out_trade_no: 商户订单号
-        attach: 附加数据（可选，回调时原样返回）
-    
-    Returns:
-        (success, prepay_id, error_msg)
+    构建微信支付 V3 API 请求的 Authorization 头
     """
     if IS_MOCK_PAY:
-        # Mock 模式下，直接返回模拟的 prepay_id
-        mock_prepay_id = f"mock_prepay_{out_trade_no}_{int(time.time())}"
-        logger.info(f"[Payment Mock] 统一下单成功，prepay_id={mock_prepay_id}")
-        return True, mock_prepay_id, None
-    
+        return "MOCK_AUTH_HEADER"
+
+    timestamp = str(int(time.time()))
+    nonce_str = secrets.token_hex(16)
+
+    # 构造签名串
+    sign_str = f"{method}\n{url_path}\n{timestamp}\n{nonce_str}\n{body}\n"
+    signature = sign_sha256_with_rsa(sign_str)
+
+    if not signature:
+        logger.error("[Payment] 生成签名失败，无法构建 Authorization 头")
+        return ""
+
+    return (
+        f'WECHATPAY2-SHA256-RSA2048 '
+        f'mchid="{MCH_ID}",'
+        f'nonce_str="{nonce_str}",'
+        f'signature="{signature}",'
+        f'timestamp="{timestamp}",'
+        f'serial_no="{SERIAL_NO}"'
+    )
+
+
+def verify_wechat_signature(request: Request, body: bytes) -> bool:
+    """
+    验证微信支付回调通知的签名
+    返回 True 表示验签通过
+    """
+    if IS_MOCK_PAY:
+        return True
+
     try:
-        # 构建请求体
+        # 获取微信签名相关头
+        wechat_signature = request.headers.get("Wechatpay-Signature", "")
+        wechat_timestamp = request.headers.get("Wechatpay-Timestamp", "")
+        wechat_nonce = request.headers.get("Wechatpay-Nonce", "")
+        wechat_serial = request.headers.get("Wechatpay-Serial", "")
+
+        if not all([wechat_signature, wechat_timestamp, wechat_nonce, wechat_serial]):
+            logger.error("[Payment] 回调通知缺少必要的签名头")
+            return False
+
+        # 验证平台证书序列号（可选，建议验证）
+        if PLATFORM_CERT_SERIAL and wechat_serial != PLATFORM_CERT_SERIAL:
+            logger.error(f"[Payment] 平台证书序列号不匹配: {wechat_serial} != {PLATFORM_CERT_SERIAL}")
+            return False
+
+        # 构造验签串
+        body_str = body.decode('utf-8') if body else ""
+        sign_str = f"{wechat_timestamp}\n{wechat_nonce}\n{body_str}\n"
+
+        # 加载平台证书公钥进行验签
+        # 注意：实际生产环境应缓存平台证书，此处简化处理
+        platform_cert_path = os.getenv("WECHAT_PLATFORM_CERT_PATH", "")
+        if not platform_cert_path:
+            logger.error("[Payment] 未配置平台证书路径，无法验签")
+            return False
+
+        with open(platform_cert_path, 'rb') as f:
+            cert_data = f.read()
+
+        from cryptography import x509
+        cert = x509.load_pem_x509_certificate(cert_data)
+        public_key = cert.public_key()
+
+        # 验证签名
+        signature_bytes = base64.b64decode(wechat_signature)
+        public_key.verify(
+            signature_bytes,
+            sign_str.encode('utf-8'),
+            padding.PKCS1v15(),
+            hashes.SHA256()
+        )
+        return True
+
+    except Exception as e:
+        logger.error(f"[Payment] 验签失败: {e}")
+        return False
+
+
+# ============================================================
+# HTTP 请求工具
+# ============================================================
+async def _make_wechat_api_request(
+    method: str,
+    url_path: str,
+    body: Optional[dict] = None
+) -> Tuple[int, dict]:
+    """
+    发送微信支付 API 请求
+    返回 (状态码, 响应数据)
+    """
+    if IS_MOCK_PAY:
+        # Mock 模式返回模拟数据
+        return _mock_api_response(method, url_path, body)
+
+    base_url = "https://api.mch.weixin.qq.com"
+    url = f"{base_url}{url_path}"
+
+    body_str = json.dumps(body, ensure_ascii=False) if body else ""
+    auth_header = build_authorization_header(method, url_path, body_str)
+
+    if not auth_header:
+        return 500, {"code": "SIGN_FAILED", "message": "签名生成失败"}
+
+    headers = {
+        "Authorization": auth_header,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "User-Agent": "K12-Rocket/2.0"
+    }
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            if method == "GET":
+                response = await client.get(url, headers=headers)
+            elif method == "POST":
+                response = await client.post(url, headers=headers, content=body_str)
+            elif method == "DELETE":
+                response = await client.delete(url, headers=headers)
+            else:
+                return 405, {"code": "METHOD_NOT_ALLOWED", "message": f"不支持的请求方法: {method}"}
+
+            status_code = response.status_code
+            try:
+                resp_data = response.json()
+            except json.JSONDecodeError:
+                resp_data = {"raw_response": response.text}
+
+            return status_code, resp_data
+
+        except httpx.TimeoutException:
+            logger.error(f"[Payment] 请求微信API超时: {method} {url_path}")
+            return 504, {"code": "TIMEOUT", "message": "请求微信支付API超时"}
+        except Exception as e:
+            logger.error(f"[Payment] 请求微信API异常: {method} {url_path} - {e}")
+            return 500, {"code": "REQUEST_FAILED", "message": str(e)}
+
+
+def _mock_api_response(method: str, url_path: str, body: Optional[dict] = None) -> Tuple[int, dict]:
+    """
+    Mock 模式下模拟微信支付 API 响应
+    """
+    logger.info(f"[Payment Mock] {method} {url_path} - body: {body}")
+
+    if "transactions/jsapi" in url_path and method == "POST":
+        # 统一下单 Mock 响应
+        prepay_id = f"mock_prepay_{secrets.token_hex(8)}"
+        return 200, {
+            "prepay_id": prepay_id,
+            "code": "SUCCESS",
+            "message": "模拟下单成功"
+        }
+
+    elif "refund" in url_path and method == "POST":
+        # 退款 Mock 响应
+        return 200, {
+            "refund_id": f"mock_refund_{secrets.token_hex(8)}",
+            "status": "SUCCESS",
+            "code": "SUCCESS",
+            "message": "模拟退款成功"
+        }
+
+    elif "out-trade-no" in url_path and method == "GET":
+        # 订单查询 Mock 响应
+        return 200, {
+            "trade_state": "SUCCESS",
+            "transaction_id": f"mock_trans_{secrets.token_hex(8)}",
+            "code": "SUCCESS",
+            "message": "模拟查询成功"
+        }
+
+    else:
+        return 200, {
+            "code": "SUCCESS",
+            "message": "Mock 模式默认响应"
+        }
+
+
+# ============================================================
+# 核心支付业务函数
+# ============================================================
+async def create_unified_order(order_req: UnifiedOrderRequest) -> PaymentResult:
+    """
+    微信支付统一下单（JSAPI）
+    返回 prepay_id 及前端调起支付所需参数
+    """
+    try:
+        # 构造请求参数
         body = {
             "appid": APPID,
             "mchid": MCH_ID,
-            "description": description,
-            "out_trade_no": out_trade_no,
+            "description": order_req.description,
+            "out_trade_no": order_req.out_trade_no,
             "notify_url": NOTIFY_URL,
             "amount": {
-                "total": amount,
+                "total": order_req.amount,
                 "currency": "CNY"
             },
             "payer": {
-                "openid": openid
+                "openid": order_req.openid
             }
         }
-        
-        if attach:
-            body["attach"] = attach
-        
-        # 构建签名
-        url = "https://api.mch.weixin.qq.com/v3/pay/transactions/jsapi"
-        method = "POST"
-        body_str = json.dumps(body, ensure_ascii=False)
-        
-        # 构建签名串
-        timestamp = str(int(time.time()))
-        nonce_str = secrets.token_hex(16)
-        sign_str = f"{method}\n{url.split('.com')[1]}\n{timestamp}\n{nonce_str}\n{body_str}\n"
-        
-        # 生成签名
-        signature = sign_sha256_with_rsa(sign_str)
-        if not signature:
-            return False, None, "签名生成失败"
-        
-        # 构建 Authorization 头
-        auth_header = (
-            f'WECHATPAY2-SHA256-RSA2048 '
-            f'mchid="{MCH_ID}",'
-            f'nonce_str="{nonce_str}",'
-            f'timestamp="{timestamp}",'
-            f'serial_no="{SERIAL_NO}",'
-            f'signature="{signature}"'
-        )
-        
-        # 发送请求
-        import httpx
-        headers = {
-            "Authorization": auth_header,
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "User-Agent": "K12-Rocket/2.0"
-        }
-        
-        with httpx.Client() as client:
-            response = client.post(url, headers=headers, content=body_str.encode("utf-8"))
-            
-            if response.status_code == 200:
-                result = response.json()
-                prepay_id = result.get("prepay_id")
-                if prepay_id:
-                    logger.info(f"[Payment] 统一下单成功，out_trade_no={out_trade_no}, prepay_id={prepay_id}")
-                    return True, prepay_id, None
-                else:
-                    error_msg = f"响应中缺少 prepay_id: {result}"
-                    logger.error(f"[Payment] {error_msg}")
-                    return False, None, error_msg
-            else:
-                error_msg = f"微信支付 API 返回错误: {response.status_code} - {response.text}"
-                logger.error(f"[Payment] {error_msg}")
-                return False, None, error_msg
-                
-    except Exception as e:
-        error_msg = f"统一下单异常: {str(e)}"
-        logger.error(f"[Payment] {error_msg}")
-        return False, None, error_msg
 
+        if order_req.attach:
+            body["attach"] = order_req.attach
+        if order_req.goods_tag:
+            body["goods_tag"] = order_req.goods_tag
 
-def query_order(out_trade_no: str) -> Tuple[bool, Optional[dict], Optional[str]]:
-    """
-    查询微信支付订单状态
-    
-    Args:
-        out_trade_no: 商户订单号
-    
-    Returns:
-        (success, order_info, error_msg)
-    """
-    if IS_MOCK_PAY:
-        # Mock 模式下，返回模拟的订单信息
-        mock_order = {
-            "trade_state": "SUCCESS",
-            "out_trade_no": out_trade_no,
-            "transaction_id": f"mock_transaction_{out_trade_no}",
-            "amount": {
-                "total": 100,
-                "payer_total": 100
-            },
-            "success_time": datetime.now().strftime("%Y-%m-%dT%H:%M:%S+08:00")
-        }
-        logger.info(f"[Payment Mock] 订单查询成功，out_trade_no={out_trade_no}")
-        return True, mock_order, None
-    
-    try:
-        url = f"https://api.mch.weixin.qq.com/v3/pay/transactions/out-trade-no/{out_trade_no}"
-        method = "GET"
-        
-        # 构建签名串
-        timestamp = str(int(time.time()))
-        nonce_str = secrets.token_hex(16)
-        sign_str = f"{method}\n{url.split('.com')[1]}\n{timestamp}\n{nonce_str}\n\n"
-        
-        # 生成签名
-        signature = sign_sha256_with_rsa(sign_str)
-        if not signature:
-            return False, None, "签名生成失败"
-        
-        # 构建 Authorization 头
-        auth_header = (
-            f'WECHATPAY2-SHA256-RSA2048 '
-            f'mchid="{MCH_ID}",'
-            f'nonce_str="{nonce_str}",'
-            f'timestamp="{timestamp}",'
-            f'serial_no="{SERIAL_NO}",'
-            f'signature="{signature}"'
-        )
-        
-        # 发送请求
-        import httpx
-        headers = {
-            "Authorization": auth_header,
-            "Accept": "application/json",
-            "User-Agent": "K12-Rocket/2.0"
-        }
-        
-        with httpx.Client() as client:
-            response = client.get(url, headers=headers)
-            
-            if response.status_code == 200:
-                order_info = response.json()
-                logger.info(f"[Payment] 订单查询成功，out_trade_no={out_trade_no}, state={order_info.get('trade_state')}")
-                return True, order_info, None
-            else:
-                error_msg = f"订单查询失败: {response.status_code} - {response.text}"
-                logger.error(f"[Payment] {error_msg}")
-                return False, None, error_msg
-                
-    except Exception as e:
-        error_msg = f"订单查询异常: {str(e)}"
-        logger.error(f"[Payment] {error_msg}")
-        return False, None, error_msg
+        # 调用微信支付 API
+        status_code, resp_data = await _make_wechat_api_request("POST", "/v3/pay/transactions/jsapi", body)
 
+        if status_code != 200:
+            error_msg = resp_data.get("message", f"微信支付API返回异常状态码: {status_code}")
+            logger.error(f"[Payment] 统一下单失败: {error_msg}")
+            return PaymentResult(
+                success=False,
+                message=error_msg,
+                data=resp_data
+            )
 
-def refund_order(
-    out_trade_no: str,
-    refund_amount: int,
-    total_amount: int,
-    out_refund_no: Optional[str] = None,
-    reason: Optional[str] = None
-) -> Tuple[bool, Optional[dict], Optional[str]]:
-    """
-    微信支付退款
-    
-    Args:
-        out_trade_no: 商户订单号
-        refund_amount: 退款金额（单位：分）
-        total_amount: 原订单金额（单位：分）
-        out_refund_no: 商户退款单号（可选，不传则自动生成）
-        reason: 退款原因（可选）
-    
-    Returns:
-        (success, refund_info, error_msg)
-    """
-    if IS_MOCK_PAY:
-        # Mock 模式下，返回模拟的退款信息
-        mock_refund = {
-            "refund_id": f"mock_refund_{out_trade_no}_{int(time.time())}",
-            "out_refund_no": out_refund_no or f"refund_{out_trade_no}",
-            "out_trade_no": out_trade_no,
-            "status": "SUCCESS",
-            "amount": {
-                "refund": refund_amount,
-                "total": total_amount
+        prepay_id = resp_data.get("prepay_id")
+        if not prepay_id:
+            logger.error(f"[Payment] 统一下单返回缺少 prepay_id: {resp_data}")
+            return PaymentResult(
+                success=False,
+                message="统一下单返回缺少 prepay_id",
+                data=resp_data
+            )
+
+        # 生成前端调起支付参数
+        pay_params = generate_jsapi_pay_params(prepay_id)
+
+        return PaymentResult(
+            success=True,
+            message="下单成功",
+            data={
+                "prepay_id": prepay_id,
+                "pay_params": pay_params,
+                "out_trade_no": order_req.out_trade_no
             }
-        }
-        logger.info(f"[Payment Mock] 退款成功，out_trade_no={out_trade_no}")
-        return True, mock_refund, None
-    
+        )
+
+    except Exception as e:
+        logger.error(f"[Payment] 统一下单异常: {e}")
+        return PaymentResult(
+            success=False,
+            message=f"统一下单异常: {str(e)}"
+        )
+
+
+async def query_order(out_trade_no: str) -> PaymentResult:
+    """
+    查询订单支付状态
+    """
     try:
-        # 生成退款单号
-        if not out_refund_no:
-            out_refund_no = f"refund_{out_trade_no}_{int(time.time())}"
-        
-        # 构建请求体
+        url_path = f"/v3/pay/transactions/out-trade-no/{out_trade_no}?mchid={MCH_ID}"
+        status_code, resp_data = await _make_wechat_api_request("GET", url_path)
+
+        if status_code != 200:
+            error_msg = resp_data.get("message", f"订单查询返回异常状态码: {status_code}")
+            logger.error(f"[Payment] 订单查询失败: {error_msg}")
+            return PaymentResult(
+                success=False,
+                message=error_msg,
+                data=resp_data
+            )
+
+        trade_state = resp_data.get("trade_state", "")
+        trade_state_desc = resp_data.get("trade_state_desc", "")
+
+        return PaymentResult(
+            success=True,
+            message="查询成功",
+            data={
+                "out_trade_no": out_trade_no,
+                "trade_state": trade_state,
+                "trade_state_desc": trade_state_desc,
+                "transaction_id": resp_data.get("transaction_id", ""),
+                "amount": resp_data.get("amount", {}).get("total", 0),
+                "payer_total": resp_data.get("amount", {}).get("payer_total", 0),
+                "success_time": resp_data.get("success_time", "")
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"[Payment] 订单查询异常: {e}")
+        return PaymentResult(
+            success=False,
+            message=f"订单查询异常: {str(e)}"
+        )
+
+
+async def close_order(out_trade_no: str) -> PaymentResult:
+    """
+    关闭订单
+    """
+    try:
         body = {
-            "out_trade_no": out_trade_no,
-            "out_refund_no": out_refund_no,
+            "mchid": MCH_ID
+        }
+        url_path = f"/v3/pay/transactions/out-trade-no/{out_trade_no}/close"
+        status_code, resp_data = await _make_wechat_api_request("POST", url_path, body)
+
+        if status_code not in [200, 204]:
+            error_msg = resp_data.get("message", f"关闭订单返回异常状态码: {status_code}")
+            logger.error(f"[Payment] 关闭订单失败: {error_msg}")
+            return PaymentResult(
+                success=False,
+                message=error_msg,
+                data=resp_data
+            )
+
+        return PaymentResult(
+            success=True,
+            message="订单关闭成功",
+            data={"out_trade_no": out_trade_no}
+        )
+
+    except Exception as e:
+        logger.error(f"[Payment] 关闭订单异常: {e}")
+        return PaymentResult(
+            success=False,
+            message=f"关闭订单异常: {str(e)}"
+        )
+
+
+async def create_refund(refund_req: RefundRequest) -> PaymentResult:
+    """
+    申请退款
+    """
+    try:
+        body = {
+            "out_trade_no": refund_req.out_trade_no,
+            "out_refund_no": refund_req.out_refund_no,
             "amount": {
-                "refund": refund_amount,
-                "total": total_amount,
+                "refund": refund_req.amount,
+                "total": refund_req.total_amount,
                 "currency": "CNY"
             }
         }
-        
-        if reason:
-            body["reason"] = reason
-        
-        # 构建签名
-        url = "https://api.mch.weixin.qq.com/v3/refund/domestic/refunds"
-        method = "POST"
-        body_str = json.dumps(body, ensure_ascii=False)
-        
-        # 构建签名串
-        timestamp = str(int(time.time()))
-        nonce_str = secrets.token_hex(16)
-        sign_str = f"{method}\n{url.split('.com')[1]}\n{timestamp}\n{nonce_str}\n{body_str}\n"
-        
-        # 生成签名
-        signature = sign_sha256_with_rsa(sign_str)
-        if not signature:
-            return False, None, "签名生成失败"
-        
-        # 构建 Authorization 头
-        auth_header = (
-            f'WECHATPAY2-SHA256-RSA2048 '
-            f'mchid="{MCH_ID}",'
-            f'nonce_str="{nonce_str}",'
-            f'timestamp="{timestamp}",'
-            f'serial_no="{SERIAL_NO}",'
-            f'signature="{signature}"'
+
+        if refund_req.reason:
+            body["reason"] = refund_req.reason
+
+        status_code, resp_data = await _make_wechat_api_request("POST", "/v3/refund/domestic/refunds", body)
+
+        if status_code != 200:
+            error_msg = resp_data.get("message", f"申请退款返回异常状态码: {status_code}")
+            logger.error(f"[Payment] 申请退款失败: {error_msg}")
+            return PaymentResult(
+                success=False,
+                message=error_msg,
+                data=resp_data
+            )
+
+        refund_status = resp_data.get("status", "")
+        return PaymentResult(
+            success=True,
+            message="退款申请成功",
+            data={
+                "refund_id": resp_data.get("refund_id", ""),
+                "out_refund_no": refund_req.out_refund_no,
+                "status": refund_status,
+                "amount": refund_req.amount
+            }
         )
-        
-        # 发送请求
-        import httpx
-        headers = {
-            "Authorization": auth_header,
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "User-Agent": "K12-Rocket/2.0"
-        }
-        
-        with httpx.Client() as client:
-            response = client.post(url, headers=headers, content=body_str.encode("utf-8"))
-            
-            if response.status_code == 200:
-                refund_info = response.json()
-                logger.info(f"[Payment] 退款成功，out_trade_no={out_trade_no}, refund_id={refund_info.get('refund_id')}")
-                return True, refund_info, None
-            else:
-                error_msg = f"退款失败: {response.status_code} - {response.text}"
-                logger.error(f"[Payment] {error_msg}")
-                return False, None, error_msg
-                
+
     except Exception as e:
-        error_msg = f"退款异常: {str(e)}"
-        logger.error(f"[Payment] {error_msg}")
-        return False, None, error_msg
+        logger.error(f"[Payment] 申请退款异常: {e}")
+        return PaymentResult(
+            success=False,
+            message=f"申请退款异常: {str(e)}"
+        )
 
 
-def handle_payment_notification(request_body: dict) -> Tuple[bool, Optional[str], Optional[str]]:
+async def query_refund(out_refund_no: str) -> PaymentResult:
+    """
+    查询退款状态
+    """
+    try:
+        url_path = f"/v3/refund/domestic/refunds/{out_refund_no}"
+        status_code, resp_data = await _make_wechat_api_request("GET", url_path)
+
+        if status_code != 200:
+            error_msg = resp_data.get("message", f"查询退款返回异常状态码: {status_code}")
+            logger.error(f"[Payment] 查询退款失败: {error_msg}")
+            return PaymentResult(
+                success=False,
+                message=error_msg,
+                data=resp_data
+            )
+
+        return PaymentResult(
+            success=True,
+            message="查询退款成功",
+            data={
+                "refund_id": resp_data.get("refund_id", ""),
+                "out_refund_no": out_refund_no,
+                "status": resp_data.get("status", ""),
+                "amount": resp_data.get("amount", {}).get("refund", 0),
+                "total_amount": resp_data.get("amount", {}).get("total", 0),
+                "success_time": resp_data.get("success_time", "")
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"[Payment] 查询退款异常: {e}")
+        return PaymentResult(
+            success=False,
+            message=f"查询退款异常: {str(e)}"
+        )
+
+
+# ============================================================
+# 回调通知处理
+# ============================================================
+async def handle_payment_notification(request: Request) -> Tuple[bool, dict]:
     """
     处理微信支付回调通知
-    
-    Args:
-        request_body: 回调请求体（已解析为字典）
-    
-    Returns:
-        (success, out_trade_no, error_msg)
+    返回 (是否成功, 解析后的支付结果数据)
     """
     try:
-        # 获取加密数据
-        resource = request_body.get("resource")
-        if not resource:
-            return False, None, "回调数据中缺少 resource 字段"
-        
-        # 解密数据
-        decrypted_data = decrypt_wechat_resource(
-            ciphertext=resource.get("ciphertext", ""),
-            nonce=resource.get("nonce", ""),
-            associated_data=resource.get("associated_data", "")
-        )
-        
+        # 读取请求体
+        body = await request.body()
+
+        # 验证签名
+        if not verify_wechat_signature(request, body):
+            logger.error("[Payment] 回调通知验签失败")
+            return False, {"code": "SIGN_VERIFY_FAILED", "message": "验签失败"}
+
+        # 解析回调数据
+        callback_data = json.loads(body.decode('utf-8'))
+
+        # 解密 resource 字段
+        resource = callback_data.get("resource", {})
+        ciphertext = resource.get("ciphertext", "")
+        nonce = resource.get("nonce", "")
+        associated_data = resource.get("associated_data", "")
+
+        if not ciphertext or not nonce:
+            logger.error(f"[Payment] 回调通知缺少加密数据: {callback_data}")
+            return False, {"code": "INVALID_RESOURCE", "message": "缺少加密数据"}
+
+        decrypted_data = decrypt_wechat_resource(ciphertext, nonce, associated_data)
         if not decrypted_data:
-            return False, None, "回调数据解密失败"
-        
-        # 提取订单信息
-        out_trade_no = decrypted_data.get("out_trade_no")
-        trade_state = decrypted_data.get("trade_state")
-        transaction_id = decrypted_data.get("transaction_id")
+            logger.error("[Payment] 回调通知解密失败")
+            return False, {"code": "DECRYPT_FAILED", "message": "解密失败"}
+
+        # 提取支付结果
+        trade_state = decrypted_data.get("trade_state", "")
+        out_trade_no = decrypted_data.get("out_trade_no", "")
+        transaction_id = decrypted_data.get("transaction_id", "")
+        success_time = decrypted_data.get("success_time", "")
+        amount = decrypted_data.get("amount", {}).get("total", 0)
+        payer_total = decrypted_data.get("amount", {}).get("payer_total", 0)
         attach = decrypted_data.get("attach", "")
-        
-        if not out_trade_no:
-            return False, None, "回调数据中缺少 out_trade_no"
-        
-        # 检查支付状态
-        if trade_state != "SUCCESS":
-            logger.warning(f"[Payment] 订单 {out_trade_no} 支付状态为 {trade_state}，跳过处理")
-            return True, out_trade_no, None
-        
-        # 解析附加数据（如果有）
-        extra_data = {}
-        if attach:
-            try:
-                extra_data = json.loads(attach)
-            except json.JSONDecodeError:
-                logger.warning(f"[Payment] 附加数据解析失败: {attach}")
-        
-        # 根据附加数据中的类型处理不同的业务逻辑
-        biz_type = extra_data.get("biz_type", "upgrade")
-        
-        if biz_type == "diagnosis":
-            # 按次诊断计费
-            user_id = extra_data.get("user_id")
-            diagnosis_count = extra_data.get("diagnosis_count", 1)
-            
-            if user_id:
-                # 更新用户诊断次数
-                from .quota import add_diagnosis_quota
-                add_diagnosis_quota(user_id, diagnosis_count)
-                logger.info(f"[Payment] 诊断次数已增加: user_id={user_id}, count={diagnosis_count}")
-        else:
-            # 默认：套餐升级
-            user_id = extra_data.get("user_id")
-            plan_type = extra_data.get("plan_type", PlanType.PRO)
-            
-            if user_id:
-                upgrade_plan(user_id, plan_type)
-                logger.info(f"[Payment] 套餐已升级: user_id={user_id}, plan={plan_type}")
-        
-        # 记录支付成功日志
-        logger.info(f"[Payment] 支付回调处理成功: out_trade_no={out_trade_no}, transaction_id={transaction_id}")
-        
-        return True, out_trade_no, None
-        
-    except Exception as e:
-        error_msg = f"支付回调处理异常: {str(e)}"
-        logger.error(f"[Payment] {error_msg}")
-        return False, None, error_msg
 
+        logger.info(f"[Payment] 收到支付回调: out_trade_no={out_trade_no}, trade_state={trade_state}")
 
-def generate_out_trade_no(user_id: str, biz_type: str = "diagnosis") -> str:
-    """
-    生成商户订单号
-    
-    Args:
-        user_id: 用户 ID
-        biz_type: 业务类型（diagnosis/upgrade）
-    
-    Returns:
-        商户订单号
-    """
-    timestamp = int(time.time() * 1000)
-    random_str = secrets.token_hex(4)
-    return f"{biz_type}_{user_id}_{timestamp}_{random_str}"
+        # 处理支付成功逻辑
+        if trade_state == "SUCCESS":
+            # 这里可以调用业务逻辑处理，如更新订单状态、增加用户配额等
+            # 具体业务逻辑由调用方实现
+            pass
 
-
-def calculate_diagnosis_price(diagnosis_count: int = 1) -> int:
-    """
-    计算诊断费用（单位：分）
-    
-    Args:
-        diagnosis_count: 诊断次数
-    
-    Returns:
-        费用金额（分）
-    """
-    # 按次诊断定价：每次诊断 9.9 元
-    unit_price = 990  # 9.9元 = 990分
-    return unit_price * diagnosis_count
-
-
-def create_diagnosis_payment(
-    openid: str,
-    user_id: str,
-    diagnosis_count: int = 1
-) -> Tuple[bool, Optional[dict], Optional[str]]:
-    """
-    创建诊断支付订单
-    
-    Args:
-        openid: 用户微信 OpenID
-        user_id: 用户 ID
-        diagnosis_count: 诊断次数
-    
-    Returns:
-        (success, pay_params, error_msg)
-    """
-    try:
-        # 计算费用
-        amount = calculate_diagnosis_price(diagnosis_count)
-        
-        # 生成订单号
-        out_trade_no = generate_out_trade_no(user_id, "diagnosis")
-        
-        # 构建附加数据
-        attach = json.dumps({
-            "biz_type": "diagnosis",
-            "user_id": user_id,
-            "diagnosis_count": diagnosis_count
-        }, ensure_ascii=False)
-        
-        # 统一下单
-        success, prepay_id, error_msg = create_unified_order(
-            openid=openid,
-            description=f"K12升学诊断 x{diagnosis_count}次",
-            amount=amount,
-            out_trade_no=out_trade_no,
-            attach=attach
-        )
-        
-        if not success:
-            return False, None, error_msg
-        
-        # 生成前端支付参数
-        pay_params = generate_jsapi_pay_params(prepay_id)
-        
-        # 记录订单信息
-        logger.info(f"[Payment] 诊断支付订单创建成功: out_trade_no={out_trade_no}, amount={amount}, count={diagnosis_count}")
-        
         return True, {
             "out_trade_no": out_trade_no,
-            "prepay_id": prepay_id,
-            "pay_params": pay_params,
+            "transaction_id": transaction_id,
+            "trade_state": trade_state,
+            "success_time": success_time,
             "amount": amount,
-            "diagnosis_count": diagnosis_count
-        }, None
-        
+            "payer_total": payer_total,
+            "attach": attach,
+            "raw_data": decrypted_data
+        }
+
+    except json.JSONDecodeError as e:
+        logger.error(f"[Payment] 回调通知JSON解析失败: {e}")
+        return False, {"code": "JSON_PARSE_ERROR", "message": "JSON解析失败"}
     except Exception as e:
-        error_msg = f"创建诊断支付订单异常: {str(e)}"
-        logger.error(f"[Payment] {error_msg}")
-        return False, None, error_msg
+        logger.error(f"[Payment] 处理回调通知异常: {e}")
+        return False, {"code": "PROCESS_ERROR", "message": str(e)}
 
 
-def verify_payment_signature(
-    headers: dict,
-    body: str
-) -> bool:
+# ============================================================
+# 工具函数
+# ============================================================
+def generate_out_trade_no(prefix: str = "K12") -> str:
     """
-    验证微信支付回调签名
-    
-    Args:
-        headers: 回调请求头
-        body: 回调请求体（原始字符串）
-    
-    Returns:
-        签名是否有效
+    生成商户订单号
+    格式: 前缀 + 时间戳 + 随机字符串
     """
-    if IS_MOCK_PAY:
-        return True
-    
-    try:
-        # 获取签名相关字段
-        wechat_signature = headers.get("wechatpay-signature", "")
-        wechat_timestamp = headers.get("wechatpay-timestamp", "")
-        wechat_nonce = headers.get("wechatpay-nonce", "")
-        wechat_serial = headers.get("wechatpay-serial", "")
-        
-        if not all([wechat_signature, wechat_timestamp, wechat_nonce, wechat_serial]):
-            logger.error("[Payment] 回调签名验证失败：缺少必要字段")
-            return False
-        
-        # 构建待签名字符串
-        sign_str = f"{wechat_timestamp}\n{wechat_nonce}\n{body}\n"
-        
-        # 获取微信平台证书（实际生产环境需要缓存并定期更新）
-        # 这里简化处理，使用商户私钥进行验证（实际应使用微信平台公钥）
-        # 生产环境建议使用 wechatpay-python-sdk 或自行实现证书下载和验证逻辑
-        
-        # 由于验证需要微信平台公钥，这里返回 True 让上层逻辑处理
-        # 实际生产环境需要实现完整的证书验证流程
-        logger.warning("[Payment] 回调签名验证简化处理，生产环境需要实现完整验证")
-        return True
-        
-    except Exception as e:
-        logger.error(f"[Payment] 回调签名验证异常: {e}")
-        return False
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    random_str = secrets.token_hex(4).upper()
+    return f"{prefix}{timestamp}{random_str}"
+
+
+def generate_refund_no(prefix: str = "RF") -> str:
+    """
+    生成退款单号
+    """
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    random_str = secrets.token_hex(4).upper()
+    return f"{prefix}{timestamp}{random_str}"
+
+
+def calculate_amount_by_plan(plan_type: PlanType) -> int:
+    """
+    根据套餐类型计算支付金额（单位：分）
+    """
+    price_map = {
+        PlanType.FREE: 0,
+        PlanType.BASIC: 9900,  # 99元
+        PlanType.PREMIUM: 29900,  # 299元
+        PlanType.ENTERPRISE: 99900,  # 999元
+    }
+    return price_map.get(plan_type, 0)
+
+
+def calculate_amount_by_diagnosis_count(count: int) -> int:
+    """
+    根据诊断次数计算支付金额（单位：分）
+    按次诊断计费方案
+    """
+    if count <= 0:
+        return 0
+
+    # 单价：每次诊断 9.9 元
+    unit_price = 990  # 9.9元 = 990分
+
+    # 阶梯优惠
+    if count >= 50:
+        # 50次以上 8折
+        unit_price = int(unit_price * 0.8)
+    elif count >= 20:
+        # 20次以上 9折
+        unit_price = int(unit_price * 0.9)
+    elif count >= 10:
+        # 10次以上 95折
+        unit_price = int(unit_price * 0.95)
+
+    return count * unit_price

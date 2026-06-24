@@ -155,11 +155,7 @@ def upload_draft(
         }
         
         with httpx.Client(timeout=30.0) as client:
-            response = client.post(
-                draft_url,
-                json=draft_data,
-                headers={"Content-Type": "application/json"}
-            )
+            response = client.post(draft_url, json=draft_data)
             result = response.json()
             
             if 'media_id' in result:
@@ -169,53 +165,70 @@ def upload_draft(
             else:
                 error_msg = result.get('errmsg', '未知错误')
                 error_code = result.get('errcode', -1)
-                logger.error(f"草稿箱上传失败: errcode={error_code}, errmsg={error_msg}")
+                logger.error(f"草稿箱上传失败 [错误码: {error_code}]: {error_msg}")
                 raise Exception(f"草稿箱上传失败: {error_msg}")
                 
     except httpx.TimeoutException:
         logger.error("请求微信API超时")
-        raise
+        raise Exception("请求微信API超时，请检查网络连接")
     except httpx.RequestError as e:
         logger.error(f"请求微信API失败: {e}")
-        raise
+        raise Exception(f"请求微信API失败: {e}")
     except Exception as e:
         logger.error(f"草稿箱上传异常: {e}")
         raise
 
 
 def main():
-    """命令行入口函数"""
+    """
+    命令行入口函数
+    支持从命令行参数或环境变量读取配置
+    """
     import argparse
     
     parser = argparse.ArgumentParser(description="微信公众号草稿箱上传工具")
-    parser.add_argument("html_path", help="HTML文件路径")
-    parser.add_argument("--title", "-t", required=True, help="文章标题")
-    parser.add_argument("--cover", "-c", help="封面图片路径")
-    parser.add_argument("--author", "-a", default="成都K12升学参谋", help="作者名称")
-    parser.add_argument("--digest", "-d", help="文章摘要")
-    parser.add_argument("--source-url", "-u", help="原文链接")
-    parser.add_argument("--open-comment", action="store_true", help="打开评论")
-    parser.add_argument("--fans-only", action="store_true", help="仅粉丝可评论")
+    parser.add_argument("--html", required=True, help="HTML文件路径")
+    parser.add_argument("--title", required=True, help="文章标题")
+    parser.add_argument("--cover", help="封面图片路径（可选）")
+    parser.add_argument("--author", default="成都K12升学参谋", help="作者名称")
+    parser.add_argument("--digest", help="文章摘要（可选）")
+    parser.add_argument("--source-url", help="原文链接（可选）")
+    parser.add_argument("--open-comment", type=int, default=0, choices=[0, 1], help="是否打开评论（0不打开，1打开）")
+    parser.add_argument("--fans-only-comment", type=int, default=0, choices=[0, 1], help="是否仅粉丝可评论（0所有人，1粉丝）")
     
     args = parser.parse_args()
     
     try:
+        # 执行上传
         media_id = upload_draft(
-            html_path=args.html_path,
+            html_path=args.html,
             title=args.title,
             cover_image_path=args.cover,
             author=args.author,
             digest=args.digest,
             content_source_url=args.source_url,
-            need_open_comment=1 if args.open_comment else 0,
-            only_fans_can_comment=1 if args.fans_only else 0
+            need_open_comment=args.open_comment,
+            only_fans_can_comment=args.fans_only_comment
         )
-        print(f"上传成功！media_id: {media_id}")
-        return 0
+        
+        # 输出结果（JSON格式，便于其他程序调用）
+        result = {
+            "success": True,
+            "media_id": media_id,
+            "message": "草稿箱上传成功"
+        }
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        
     except Exception as e:
-        print(f"上传失败: {e}", file=sys.stderr)
-        return 1
+        # 输出错误结果
+        result = {
+            "success": False,
+            "media_id": None,
+            "message": str(e)
+        }
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        sys.exit(1)
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

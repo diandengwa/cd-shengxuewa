@@ -142,7 +142,7 @@ def format_markdown(content: str, title: str = "") -> str:
             continue
 
         # 处理列表项
-        if stripped.startswith("- ") or stripped.startswith("* ") or stripped.startswith("+ "):
+        if stripped.startswith("- ") or stripped.startswith("* "):
             formatted_lines.append(stripped)
             continue
 
@@ -162,7 +162,8 @@ def format_markdown(content: str, title: str = "") -> str:
             continue
 
         # 处理分隔线
-        if stripped in ("---", "***", "___"):
+        if stripped in ["---", "***", "___"]:
+            formatted_lines.append("")
             formatted_lines.append(stripped)
             formatted_lines.append("")
             continue
@@ -170,97 +171,61 @@ def format_markdown(content: str, title: str = "") -> str:
         # 普通段落
         formatted_lines.append(stripped)
 
-    # 清理末尾多余空行
-    while formatted_lines and formatted_lines[-1] == "":
-        formatted_lines.pop()
+    # 清理多余的空行（最多连续两个空行）
+    cleaned_lines = []
+    empty_count = 0
+    for line in formatted_lines:
+        if line == "":
+            empty_count += 1
+            if empty_count <= 2:
+                cleaned_lines.append(line)
+        else:
+            empty_count = 0
+            cleaned_lines.append(line)
 
-    return "\n".join(formatted_lines)
+    return "\n".join(cleaned_lines)
 
 
 # ============================================================
-# 微信公众号草稿箱上传
+# md2wechat 排版函数
 # ============================================================
-def upload_to_wechat_draft(
-    title: str,
-    content: str,
-    author: str = "成都K12升学参谋",
-    digest: str = "",
-    thumb_media_id: str = "",
-    need_open_comment: int = 0,
-    only_fans_can_comment: int = 0
-) -> Dict[str, Any]:
+def md2wechat_format(md_content: str, title: str = "") -> str:
     """
-    上传图文消息到微信公众号草稿箱
-
-    参数:
-        title: 文章标题
-        content: 文章内容（HTML格式）
-        author: 作者
-        digest: 摘要
-        thumb_media_id: 封面图片素材ID
-        need_open_comment: 是否打开评论（0不打开，1打开）
-        only_fans_can_comment: 是否只有粉丝可以评论
-
-    返回:
-        微信API响应结果
+    调用 md2wechat 排版引擎进行微信公众号排版
+    返回排版后的 HTML 内容（适用于微信公众号编辑器）
     """
     try:
-        access_token = get_wechat_access_token()
+        # 先进行基础 Markdown 排版
+        formatted_md = format_markdown(md_content, title)
 
-        # 构建请求体
-        articles = [{
-            "title": title,
-            "author": author,
-            "digest": digest,
-            "content": content,
-            "thumb_media_id": thumb_media_id,
-            "need_open_comment": need_open_comment,
-            "only_fans_can_comment": only_fans_can_comment,
-        }]
+        # 尝试导入 md2wechat 模块
+        try:
+            from md2wechat import WeChatRenderer
+            renderer = WeChatRenderer()
+            html_content = renderer.render(formatted_md)
+            logger.info("md2wechat 排版成功")
+            return html_content
+        except ImportError:
+            logger.warning("md2wechat 模块未安装，使用内置简单排版")
+            # 内置简单排版：将 Markdown 转换为微信公众号可接受的 HTML
+            html_content = simple_md_to_wechat_html(formatted_md)
+            return html_content
 
-        payload = {
-            "articles": articles
-        }
-
-        # 发送请求
-        url = f"{WECHAT_DRAFT_ADD_URL}?access_token={access_token}"
-        headers = {"Content-Type": "application/json; charset=utf-8"}
-        resp = requests.post(url, json=payload, headers=headers, timeout=30)
-        resp.raise_for_status()
-        result = resp.json()
-
-        if "media_id" in result:
-            logger.info(f"草稿箱上传成功，media_id: {result['media_id']}")
-            return result
-        else:
-            error_msg = result.get("errmsg", "未知错误")
-            logger.error(f"草稿箱上传失败: {result}")
-            raise RuntimeError(f"微信草稿箱上传失败: {error_msg}")
-
-    except requests.RequestException as e:
-        logger.error(f"网络请求失败: {e}")
-        raise
     except Exception as e:
-        logger.error(f"上传草稿箱异常: {e}")
-        raise
+        logger.error(f"排版失败: {e}")
+        # 排版失败时返回原始 Markdown 内容
+        return md_content
 
 
-# ============================================================
-# Markdown 转 HTML（微信图文格式）
-# ============================================================
-def markdown_to_wechat_html(markdown_content: str) -> str:
+def simple_md_to_wechat_html(md_content: str) -> str:
     """
-    将 Markdown 内容转换为微信公众号支持的 HTML 格式
-
-    注意：微信公众号图文消息支持部分 HTML 标签，不支持 CSS 样式
-    这里做简单的转换，复杂的 Markdown 特性可能需要更完善的转换器
+    简单的 Markdown 转微信公众号 HTML
+    当 md2wechat 模块不可用时使用
     """
-    import re
-
-    lines = markdown_content.split("\n")
+    lines = md_content.split("\n")
     html_parts = []
     in_code_block = False
-    code_block_content = []
+    code_content = []
 
     for line in lines:
         stripped = line.strip()
@@ -269,16 +234,16 @@ def markdown_to_wechat_html(markdown_content: str) -> str:
         if stripped.startswith("```"):
             if in_code_block:
                 # 结束代码块
-                code_text = "\n".join(code_block_content)
-                html_parts.append(f"<pre><code>{code_text}</code></pre>")
-                code_block_content = []
+                code_html = "<pre><code>" + "\n".join(code_content) + "</code></pre>"
+                html_parts.append(code_html)
+                code_content = []
                 in_code_block = False
             else:
                 in_code_block = True
             continue
 
         if in_code_block:
-            code_block_content.append(line)
+            code_content.append(stripped)
             continue
 
         # 处理标题
@@ -290,202 +255,241 @@ def markdown_to_wechat_html(markdown_content: str) -> str:
             html_parts.append(f"<h3>{stripped[4:]}</h3>")
         elif stripped.startswith("#### "):
             html_parts.append(f"<h4>{stripped[5:]}</h4>")
-        elif stripped.startswith("##### "):
-            html_parts.append(f"<h5>{stripped[6:]}</h5>")
-        elif stripped.startswith("###### "):
-            html_parts.append(f"<h6>{stripped[7:]}</h6>")
-
+        # 处理列表
+        elif stripped.startswith("- ") or stripped.startswith("* "):
+            html_parts.append(f"<li>{stripped[2:]}</li>")
         # 处理引用
         elif stripped.startswith(">"):
-            quote_text = stripped[1:].strip()
-            html_parts.append(f"<blockquote>{quote_text}</blockquote>")
-
-        # 处理无序列表
-        elif stripped.startswith("- ") or stripped.startswith("* ") or stripped.startswith("+ "):
-            list_text = stripped[2:]
-            html_parts.append(f"<li>{list_text}</li>")
-
-        # 处理有序列表
-        elif re.match(r"^\d+\.\s", stripped):
-            list_text = re.sub(r"^\d+\.\s", "", stripped)
-            html_parts.append(f"<li>{list_text}</li>")
-
+            html_parts.append(f"<blockquote>{stripped[1:]}</blockquote>")
         # 处理分隔线
-        elif stripped in ("---", "***", "___"):
+        elif stripped in ["---", "***", "___"]:
             html_parts.append("<hr/>")
-
-        # 处理图片
-        elif stripped.startswith("!["):
-            img_match = re.match(r"!\[(.*?)\]\((.*?)\)", stripped)
-            if img_match:
-                alt_text = img_match.group(1)
-                img_url = img_match.group(2)
-                html_parts.append(f'<img src="{img_url}" alt="{alt_text}"/>')
-
-        # 处理链接
-        elif "[" in stripped and "](" in stripped:
-            # 简单处理行内链接
-            link_text = re.sub(r"\[(.*?)\]\((.*?)\)", r'<a href="\2">\1</a>', stripped)
-            html_parts.append(f"<p>{link_text}</p>")
-
         # 处理空行
-        elif not stripped:
+        elif stripped == "":
             html_parts.append("<p>&nbsp;</p>")
-
         # 普通段落
         else:
-            # 处理加粗和斜体
-            text = re.sub(r"\*\*(.*?)\*\*", r"<strong>\1</strong>", stripped)
-            text = re.sub(r"\*(.*?)\*", r"<em>\1</em>", text)
-            html_parts.append(f"<p>{text}</p>")
+            html_parts.append(f"<p>{stripped}</p>")
 
     return "\n".join(html_parts)
 
 
 # ============================================================
-# 通知发送
+# 微信公众号草稿箱上传
 # ============================================================
-def send_notification(title: str, media_id: str, status: str = "success", error_msg: str = "") -> bool:
+def upload_draft_to_wechat(title: str, content: str, author: str = "成都K12升学参谋") -> Dict[str, Any]:
     """
-    发送通知给创始人
-
-    支持：企业微信机器人、钉钉机器人、邮件
+    上传文章到微信公众号草稿箱
+    返回上传结果，包含 media_id
     """
     try:
-        if NOTIFY_TYPE == "wecom":
-            return _send_wecom_notification(title, media_id, status, error_msg)
-        elif NOTIFY_TYPE == "dingtalk":
-            return _send_dingtalk_notification(title, media_id, status, error_msg)
-        elif NOTIFY_TYPE == "email":
-            return _send_email_notification(title, media_id, status, error_msg)
+        access_token = get_wechat_access_token()
+
+        # 构建草稿内容
+        draft_data = {
+            "articles": [
+                {
+                    "title": title,
+                    "author": author,
+                    "content": content,
+                    "thumb_media_id": get_thumb_media_id(),
+                    "need_open_comment": 1,
+                    "only_fans_can_comment": 0,
+                }
+            ]
+        }
+
+        # 调用微信草稿箱 API
+        url = f"{WECHAT_DRAFT_ADD_URL}?access_token={access_token}"
+        resp = requests.post(url, json=draft_data, timeout=30)
+        resp.raise_for_status()
+        result = resp.json()
+
+        if "media_id" in result:
+            logger.info(f"草稿上传成功，media_id: {result['media_id']}")
+            return {
+                "success": True,
+                "media_id": result["media_id"],
+                "title": title,
+                "upload_time": datetime.now().isoformat()
+            }
         else:
-            logger.warning(f"不支持的通知类型: {NOTIFY_TYPE}")
-            return False
+            error_msg = result.get("errmsg", "未知错误")
+            logger.error(f"草稿上传失败: {error_msg}")
+            return {
+                "success": False,
+                "error": error_msg,
+                "title": title
+            }
+
     except Exception as e:
-        logger.error(f"发送通知失败: {e}")
+        logger.error(f"上传草稿箱异常: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "title": title
+        }
+
+
+def get_thumb_media_id() -> str:
+    """
+    获取默认的封面图片 media_id
+    可以从环境变量读取，或者使用默认值
+    """
+    default_thumb = os.getenv("WECHAT_THUMB_MEDIA_ID", "")
+    if default_thumb:
+        return default_thumb
+
+    # 如果没有配置默认封面，尝试从素材库获取
+    try:
+        access_token = get_wechat_access_token()
+        url = f"https://api.weixin.qq.com/cgi-bin/material/batchget_material?access_token={access_token}"
+        data = {
+            "type": "image",
+            "offset": 0,
+            "count": 1
+        }
+        resp = requests.post(url, json=data, timeout=10)
+        resp.raise_for_status()
+        result = resp.json()
+
+        if result.get("item") and len(result["item"]) > 0:
+            return result["item"][0]["media_id"]
+    except Exception as e:
+        logger.warning(f"获取封面图片失败: {e}")
+
+    # 返回空字符串，微信 API 会使用默认封面
+    return ""
+
+
+# ============================================================
+# 通知发送
+# ============================================================
+def send_notification(title: str, media_id: str, status: str = "success") -> bool:
+    """
+    发送通知给创始人
+    支持企业微信、钉钉、邮件三种方式
+    """
+    if NOTIFY_TYPE == "wecom":
+        return send_wecom_notification(title, media_id, status)
+    elif NOTIFY_TYPE == "dingtalk":
+        return send_dingtalk_notification(title, media_id, status)
+    elif NOTIFY_TYPE == "email":
+        return send_email_notification(title, media_id, status)
+    else:
+        logger.warning(f"不支持的通知类型: {NOTIFY_TYPE}")
         return False
 
 
-def _send_wecom_notification(title: str, media_id: str, status: str, error_msg: str) -> bool:
-    """发送企业微信机器人通知"""
+def send_wecom_notification(title: str, media_id: str, status: str) -> bool:
+    """通过企业微信 webhook 发送通知"""
     if not WECOM_WEBHOOK_URL:
         logger.warning("企业微信 webhook URL 未配置")
         return False
 
-    if status == "success":
-        content = f"✅ 内容工厂流水线执行成功\n\n标题：{title}\n草稿箱ID：{media_id}\n时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-    else:
-        content = f"❌ 内容工厂流水线执行失败\n\n标题：{title}\n错误：{error_msg}\n时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-
-    payload = {
-        "msgtype": "text",
-        "text": {
-            "content": content
-        }
-    }
-
     try:
-        resp = requests.post(WECOM_WEBHOOK_URL, json=payload, timeout=10)
-        resp.raise_for_status()
-        result = resp.json()
-        if result.get("errcode") == 0:
-            logger.info("企业微信通知发送成功")
-            return True
+        if status == "success":
+            content = f"✅ 内容工厂新文章已生成并上传草稿箱\n\n标题：{title}\nmedia_id：{media_id}\n\n请登录公众号后台确认发布。"
         else:
-            logger.error(f"企业微信通知发送失败: {result}")
-            return False
+            content = f"❌ 内容工厂文章上传失败\n\n标题：{title}\n错误信息：{media_id}"
+
+        data = {
+            "msgtype": "text",
+            "text": {
+                "content": content
+            }
+        }
+
+        resp = requests.post(WECOM_WEBHOOK_URL, json=data, timeout=10)
+        resp.raise_for_status()
+        logger.info("企业微信通知发送成功")
+        return True
+
     except Exception as e:
-        logger.error(f"企业微信通知发送异常: {e}")
+        logger.error(f"企业微信通知发送失败: {e}")
         return False
 
 
-def _send_dingtalk_notification(title: str, media_id: str, status: str, error_msg: str) -> bool:
-    """发送钉钉机器人通知（支持加签安全设置）"""
+def send_dingtalk_notification(title: str, media_id: str, status: str) -> bool:
+    """通过钉钉 webhook 发送通知"""
     if not DINGTALK_WEBHOOK_URL:
         logger.warning("钉钉 webhook URL 未配置")
         return False
 
-    # 构建请求 URL（如果配置了加签密钥）
-    webhook_url = DINGTALK_WEBHOOK_URL
-    if DINGTALK_SECRET:
-        timestamp = str(int(time.time() * 1000))
-        sign_string = f"{timestamp}\n{DINGTALK_SECRET}"
-        sign = base64.b64encode(
-            hmac.new(
-                DINGTALK_SECRET.encode("utf-8"),
-                sign_string.encode("utf-8"),
-                hashlib.sha256
-            ).digest()
-        ).decode("utf-8")
-        webhook_url = f"{DINGTALK_WEBHOOK_URL}&timestamp={timestamp}&sign={urllib.parse.quote(sign)}"
-
-    if status == "success":
-        title_text = "✅ 内容工厂流水线执行成功"
-        text = f"### {title_text}\n\n- **标题**：{title}\n- **草稿箱ID**：{media_id}\n- **时间**：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-    else:
-        title_text = "❌ 内容工厂流水线执行失败"
-        text = f"### {title_text}\n\n- **标题**：{title}\n- **错误**：{error_msg}\n- **时间**：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-
-    payload = {
-        "msgtype": "markdown",
-        "markdown": {
-            "title": title_text,
-            "text": text
-        }
-    }
-
     try:
-        resp = requests.post(webhook_url, json=payload, timeout=10)
-        resp.raise_for_status()
-        result = resp.json()
-        if result.get("errcode") == 0:
-            logger.info("钉钉通知发送成功")
-            return True
+        # 计算签名（如果配置了 secret）
+        timestamp = str(round(time.time() * 1000))
+        sign = ""
+        if DINGTALK_SECRET:
+            string_to_sign = f"{timestamp}\n{DINGTALK_SECRET}"
+            hmac_code = hmac.new(
+                DINGTALK_SECRET.encode("utf-8"),
+                string_to_sign.encode("utf-8"),
+                digestmod=hashlib.sha256
+            ).digest()
+            sign = base64.b64encode(hmac_code).decode("utf-8")
+
+        # 构建 webhook URL
+        webhook_url = DINGTALK_WEBHOOK_URL
+        if sign:
+            webhook_url += f"&timestamp={timestamp}&sign={sign}"
+
+        if status == "success":
+            content = f"✅ 内容工厂新文章已生成并上传草稿箱\n\n标题：{title}\nmedia_id：{media_id}\n\n请登录公众号后台确认发布。"
         else:
-            logger.error(f"钉钉通知发送失败: {result}")
-            return False
+            content = f"❌ 内容工厂文章上传失败\n\n标题：{title}\n错误信息：{media_id}"
+
+        data = {
+            "msgtype": "text",
+            "text": {
+                "content": content
+            }
+        }
+
+        resp = requests.post(webhook_url, json=data, timeout=10)
+        resp.raise_for_status()
+        logger.info("钉钉通知发送成功")
+        return True
+
     except Exception as e:
-        logger.error(f"钉钉通知发送异常: {e}")
+        logger.error(f"钉钉通知发送失败: {e}")
         return False
 
 
-def _send_email_notification(title: str, media_id: str, status: str, error_msg: str) -> bool:
-    """发送邮件通知"""
+def send_email_notification(title: str, media_id: str, status: str) -> bool:
+    """通过邮件发送通知"""
     if not all([EMAIL_SMTP_HOST, EMAIL_USER, EMAIL_PASSWORD, EMAIL_TO]):
         logger.warning("邮件配置不完整")
         return False
 
     try:
         msg = MIMEMultipart("alternative")
-        msg["Subject"] = f"内容工厂流水线通知 - {title}"
+        msg["Subject"] = f"内容工厂文章{'上传成功' if status == 'success' else '上传失败'}"
         msg["From"] = EMAIL_USER
         msg["To"] = EMAIL_TO
 
         if status == "success":
-            html_content = f"""
-            <html>
-            <body>
-                <h2>✅ 内容工厂流水线执行成功</h2>
-                <p><strong>标题：</strong>{title}</p>
-                <p><strong>草稿箱ID：</strong>{media_id}</p>
-                <p><strong>时间：</strong>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-            </body>
-            </html>
+            text_content = f"""
+            内容工厂新文章已生成并上传草稿箱
+
+            标题：{title}
+            media_id：{media_id}
+
+            请登录公众号后台确认发布。
             """
         else:
-            html_content = f"""
-            <html>
-            <body>
-                <h2>❌ 内容工厂流水线执行失败</h2>
-                <p><strong>标题：</strong>{title}</p>
-                <p><strong>错误：</strong>{error_msg}</p>
-                <p><strong>时间：</strong>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-            </body>
-            </html>
+            text_content = f"""
+            内容工厂文章上传失败
+
+            标题：{title}
+            错误信息：{media_id}
+
+            请检查系统日志。
             """
 
-        msg.attach(MIMEText(html_content, "html", "utf-8"))
+        msg.attach(MIMEText(text_content, "plain", "utf-8"))
 
+        # 发送邮件
         with smtplib.SMTP_SSL(EMAIL_SMTP_HOST, EMAIL_SMTP_PORT) as server:
             server.login(EMAIL_USER, EMAIL_PASSWORD)
             server.sendmail(EMAIL_USER, [EMAIL_TO], msg.as_string())
@@ -493,93 +497,120 @@ def _send_email_notification(title: str, media_id: str, status: str, error_msg: 
         logger.info("邮件通知发送成功")
         return True
 
-    except smtplib.SMTPException as e:
-        logger.error(f"邮件发送失败: {e}")
-        return False
     except Exception as e:
-        logger.error(f"邮件发送异常: {e}")
+        logger.error(f"邮件通知发送失败: {e}")
         return False
 
 
 # ============================================================
-# 主流水线函数
+# 主流程：内容工厂流水线
 # ============================================================
-def run_pipeline(
+def process_content_pipeline(
     title: str,
-    content: str,
+    md_content: str,
     author: str = "成都K12升学参谋",
-    digest: str = "",
-    thumb_media_id: str = "",
-    need_open_comment: int = 0,
-    only_fans_can_comment: int = 0
+    output_dir: Optional[Path] = None
 ) -> Dict[str, Any]:
     """
-    执行完整的内容工厂流水线：
-    1. Markdown 排版
-    2. 转换为微信 HTML 格式
-    3. 上传到微信公众号草稿箱
+    内容工厂流水线主流程
+    1. 生成 Markdown 文件
+    2. 排版优化
+    3. 上传微信公众号草稿箱
     4. 发送通知
-
-    返回:
-        包含执行结果的字典
     """
     result = {
-        "success": False,
         "title": title,
-        "media_id": "",
-        "error_msg": "",
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
+        "steps": []
     }
 
+    # 步骤1：生成 Markdown 文件
+    logger.info(f"开始处理文章: {title}")
+    if output_dir is None:
+        output_dir = PROJECT_ROOT / "output" / "articles"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # 生成文件名（使用时间戳和标题）
+    safe_title = "".join(c for c in title if c.isalnum() or c in " _-").strip()
+    safe_title = safe_title.replace(" ", "_")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    md_filename = f"{timestamp}_{safe_title}.md"
+    md_filepath = output_dir / md_filename
+
+    # 写入 Markdown 文件
+    with open(md_filepath, "w", encoding="utf-8") as f:
+        f.write(md_content)
+    logger.info(f"Markdown 文件已生成: {md_filepath}")
+    result["steps"].append({
+        "step": "generate_md",
+        "status": "success",
+        "filepath": str(md_filepath)
+    })
+
+    # 步骤2：排版优化
+    logger.info("开始排版优化")
     try:
-        logger.info(f"开始执行内容工厂流水线: {title}")
+        formatted_content = md2wechat_format(md_content, title)
+        # 保存排版后的 HTML 文件
+        html_filename = f"{timestamp}_{safe_title}.html"
+        html_filepath = output_dir / html_filename
+        with open(html_filepath, "w", encoding="utf-8") as f:
+            f.write(formatted_content)
+        logger.info(f"排版后的 HTML 文件已生成: {html_filepath}")
+        result["steps"].append({
+            "step": "format_markdown",
+            "status": "success",
+            "filepath": str(html_filepath)
+        })
+    except Exception as e:
+        logger.error(f"排版优化失败: {e}")
+        result["steps"].append({
+            "step": "format_markdown",
+            "status": "failed",
+            "error": str(e)
+        })
+        formatted_content = md_content
 
-        # 步骤1: Markdown 排版
-        logger.info("步骤1: Markdown 排版")
-        formatted_md = format_markdown(content, title)
-        logger.info("Markdown 排版完成")
+    # 步骤3：上传微信公众号草稿箱
+    logger.info("开始上传微信公众号草稿箱")
+    try:
+        upload_result = upload_draft_to_wechat(title, formatted_content, author)
+        result["steps"].append({
+            "step": "upload_draft",
+            "status": "success" if upload_result["success"] else "failed",
+            "media_id": upload_result.get("media_id", ""),
+            "error": upload_result.get("error", "")
+        })
 
-        # 步骤2: 转换为微信 HTML 格式
-        logger.info("步骤2: 转换为微信 HTML 格式")
-        wechat_html = markdown_to_wechat_html(formatted_md)
-        logger.info("HTML 转换完成")
-
-        # 步骤3: 上传到微信公众号草稿箱
-        logger.info("步骤3: 上传到微信公众号草稿箱")
-        upload_result = upload_to_wechat_draft(
-            title=title,
-            content=wechat_html,
-            author=author,
-            digest=digest,
-            thumb_media_id=thumb_media_id,
-            need_open_comment=need_open_comment,
-            only_fans_can_comment=only_fans_can_comment
-        )
-        media_id = upload_result.get("media_id", "")
-        result["media_id"] = media_id
-        logger.info(f"草稿箱上传成功，media_id: {media_id}")
-
-        # 步骤4: 发送通知
-        logger.info("步骤4: 发送通知")
-        notify_success = send_notification(title, media_id, status="success")
-        if notify_success:
-            logger.info("通知发送成功")
+        if upload_result["success"]:
+            # 步骤4：发送通知
+            logger.info("上传成功，发送通知")
+            notify_success = send_notification(
+                title,
+                upload_result["media_id"],
+                "success"
+            )
+            result["steps"].append({
+                "step": "notify",
+                "status": "success" if notify_success else "failed"
+            })
+            result["success"] = True
         else:
-            logger.warning("通知发送失败，但流水线已执行成功")
-
-        result["success"] = True
-        logger.info(f"内容工厂流水线执行成功: {title}")
+            # 上传失败，发送失败通知
+            logger.error("上传失败，发送失败通知")
+            send_notification(title, upload_result.get("error", "未知错误"), "failed")
+            result["success"] = False
 
     except Exception as e:
-        error_msg = str(e)
-        result["error_msg"] = error_msg
-        logger.error(f"内容工厂流水线执行失败: {error_msg}")
-
+        logger.error(f"上传流程异常: {e}")
+        result["steps"].append({
+            "step": "upload_draft",
+            "status": "failed",
+            "error": str(e)
+        })
         # 发送失败通知
-        try:
-            send_notification(title, "", status="error", error_msg=error_msg)
-        except Exception as notify_error:
-            logger.error(f"发送失败通知也失败了: {notify_error}")
+        send_notification(title, str(e), "failed")
+        result["success"] = False
 
     return result
 
@@ -588,54 +619,43 @@ def run_pipeline(
 # 命令行入口
 # ============================================================
 def main():
-    """命令行入口，支持从参数或环境变量读取内容"""
+    """命令行入口函数"""
     import argparse
 
     parser = argparse.ArgumentParser(description="内容工厂流水线 v4")
-    parser.add_argument("--title", type=str, help="文章标题")
-    parser.add_argument("--content", type=str, help="文章内容（Markdown 格式）")
-    parser.add_argument("--content-file", type=str, help="文章内容文件路径")
-    parser.add_argument("--author", type=str, default="成都K12升学参谋", help="作者")
-    parser.add_argument("--digest", type=str, default="", help="摘要")
-    parser.add_argument("--thumb-media-id", type=str, default="", help="封面图片素材ID")
-    parser.add_argument("--need-open-comment", type=int, default=0, help="是否打开评论")
-    parser.add_argument("--only-fans-can-comment", type=int, default=0, help="是否仅粉丝可评论")
+    parser.add_argument("--title", required=True, help="文章标题")
+    parser.add_argument("--content", help="文章内容（Markdown 格式）")
+    parser.add_argument("--content-file", help="文章内容文件路径")
+    parser.add_argument("--author", default="成都K12升学参谋", help="作者名称")
+    parser.add_argument("--output-dir", help="输出目录")
 
     args = parser.parse_args()
 
-    # 获取内容
-    content = args.content
-    if not content and args.content_file:
-        try:
-            with open(args.content_file, "r", encoding="utf-8") as f:
-                content = f.read()
-        except Exception as e:
-            logger.error(f"读取内容文件失败: {e}")
-            sys.exit(1)
-
-    if not content:
+    # 获取文章内容
+    if args.content:
+        md_content = args.content
+    elif args.content_file:
+        with open(args.content_file, "r", encoding="utf-8") as f:
+            md_content = f.read()
+    else:
         logger.error("请提供文章内容（--content 或 --content-file）")
         sys.exit(1)
 
-    if not args.title:
-        logger.error("请提供文章标题（--title）")
-        sys.exit(1)
-
     # 执行流水线
-    result = run_pipeline(
+    result = process_content_pipeline(
         title=args.title,
-        content=content,
+        md_content=md_content,
         author=args.author,
-        digest=args.digest,
-        thumb_media_id=args.thumb_media_id,
-        need_open_comment=args.need_open_comment,
-        only_fans_can_comment=args.only_fans_can_comment
+        output_dir=Path(args.output_dir) if args.output_dir else None
     )
 
     # 输出结果
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
-    if not result["success"]:
+    if result.get("success"):
+        logger.info("内容工厂流水线执行成功")
+    else:
+        logger.error("内容工厂流水线执行失败")
         sys.exit(1)
 
 

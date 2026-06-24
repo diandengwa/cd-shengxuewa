@@ -126,6 +126,7 @@ def check_quota(openid: str, action: str = "query") -> Tuple[bool, UserRecord, s
             return True, user, "Pro Max用户，无限使用"
 
         if action == "query":
+            # 基础查询：免费用户每月3次，Pro Lite用户无限
             if user.plan == PlanType.FREE:
                 if user.quota.monthly_queries_used >= FREE_MONTHLY_QUERIES:
                     remaining = max(0, FREE_MONTHLY_QUERIES - user.quota.monthly_queries_used)
@@ -138,78 +139,46 @@ def check_quota(openid: str, action: str = "query") -> Tuple[bool, UserRecord, s
                 # 扣配额
                 user.quota.monthly_queries_used += 1
                 remaining = FREE_MONTHLY_QUERIES - user.quota.monthly_queries_used
+                msg = f"基础查询成功，本月剩余{remaining}次免费查询"
                 update_user(user)
-                return True, user, f"剩余{remaining}次免费基础查询/本月"
-
-            elif user.plan == PlanType.LITE:
-                # Pro Lite基础查询无限
-                return True, user, "Pro Lite用户，无限基础查询"
+                return True, user, msg
+            else:
+                # Pro Lite用户基础查询不限制
+                msg = "Pro Lite用户，基础查询无限使用"
+                return True, user, msg
 
         elif action == "diagnose":
+            # 深度诊断：消耗credits
             if user.plan == PlanType.FREE:
+                msg = "免费用户不支持深度诊断，升级Pro Lite ¥29.9/月获取诊断功能"
+                return False, user, msg
+            
+            # Pro Lite用户检查credits
+            available = get_available_credits(user)
+            if available < DIAGNOSE_COST:
                 msg = (
-                    "深度诊断为Pro功能。"
-                    f"升级Pro Lite ¥29.9/月获取{LITE_MONTHLY_CREDITS}次/月深度诊断。"
+                    f"Pro Lite用户本月credits已用完"
+                    f"（本月已用{user.quota.credits_used}/{LITE_MONTHLY_CREDITS}）。"
+                    f"升级Pro Max ¥99.9/月无限使用或等待下月重置。"
                 )
                 return False, user, msg
+            
+            # 扣credits
+            user.quota.credits_used += DIAGNOSE_COST
+            user.quota.monthly_diagnoses_used += 1
+            remaining_credits = LITE_MONTHLY_CREDITS - user.quota.credits_used
+            msg = f"深度诊断成功，本月剩余{remaining_credits} credits"
+            update_user(user)
+            return True, user, msg
 
-            elif user.plan == PlanType.LITE:
-                available_credits = get_available_credits(user)
-                if available_credits < DIAGNOSE_COST:
-                    msg = (
-                        f"Pro Lite每月{LITE_MONTHLY_CREDITS}次深度诊断已用完"
-                        f"（本月已用{user.quota.credits_used}次）。"
-                        "升级Pro Max ¥99/月获取无限诊断。"
-                    )
-                    return False, user, msg
-                # 消耗credits
-                user.quota.credits_used += DIAGNOSE_COST
-                user.quota.monthly_diagnoses_used += 1
-                remaining_credits = get_available_credits(user)
-                update_user(user)
-                return True, user, f"剩余{remaining_credits}次深度诊断/本月"
-
-        return True, user, ""
+        else:
+            return False, user, f"未知操作类型: {action}"
 
     except Exception as e:
-        logger.error(f"[Quota] 检查配额异常: {e}", exc_info=True)
-        # 异常时默认允许，避免影响用户体验
+        logger.error(f"[Quota] 配额检查异常: {e}", exc_info=True)
+        # 异常时允许通过，避免影响用户体验
         user = get_or_create_user(openid)
-        return True, user, "配额检查异常，已临时放行"
-
-
-def upgrade_plan(openid: str, new_plan: PlanType) -> Optional[UserRecord]:
-    """
-    升级套餐
-    返回升级后的用户对象，失败返回None
-    """
-    try:
-        user = get_or_create_user(openid)
-        old_plan = user.plan
-        
-        # 不允许降级
-        if new_plan.value <= old_plan.value:
-            logger.warning(f"[Quota] 用户{openid[:8]}尝试降级: {old_plan} -> {new_plan}")
-            return None
-        
-        user.plan = new_plan
-        user.quota.plan = new_plan
-        
-        # 升级时重置配额
-        user.quota.monthly_queries_used = 0
-        user.quota.monthly_queries_reset = _get_month_start()
-        user.quota.monthly_diagnoses_used = 0
-        user.quota.monthly_diagnoses_reset = _get_month_start()
-        user.quota.credits_used = 0
-        user.quota.credits_reset = _get_month_start()
-        
-        update_user(user)
-        logger.info(f"[Quota] 用户{openid[:8]}升级: {old_plan} -> {new_plan}")
-        return user
-        
-    except Exception as e:
-        logger.error(f"[Quota] 升级套餐异常: {e}", exc_info=True)
-        return None
+        return True, user, f"配额检查异常，已临时放行: {str(e)}"
 
 
 def get_quota_info(openid: str) -> dict:
@@ -226,57 +195,45 @@ def get_quota_info(openid: str) -> dict:
             "monthly_queries": {
                 "total": FREE_MONTHLY_QUERIES if user.plan == PlanType.FREE else "无限",
                 "used": user.quota.monthly_queries_used,
-                "remaining": max(0, FREE_MONTHLY_QUERIES - user.quota.monthly_queries_used) if user.plan == PlanType.FREE else "无限"
+                "remaining": max(0, FREE_MONTHLY_QUERIES - user.quota.monthly_queries_used) if user.plan == PlanType.FREE else "无限",
+                "reset_date": user.quota.monthly_queries_reset
             },
             "monthly_diagnoses": {
-                "total": 0 if user.plan == PlanType.FREE else (LITE_MONTHLY_CREDITS if user.plan == PlanType.LITE else "无限"),
+                "total": 0 if user.plan == PlanType.FREE else LITE_MONTHLY_CREDITS if user.plan == PlanType.LITE else "无限",
                 "used": user.quota.monthly_diagnoses_used,
-                "remaining": 0 if user.plan == PlanType.FREE else (get_available_credits(user) if user.plan == PlanType.LITE else "无限")
+                "remaining": get_available_credits(user) if user.plan != PlanType.MAX else "无限",
+                "reset_date": user.quota.credits_reset
             },
             "credits": {
-                "total": 0 if user.plan == PlanType.FREE else (LITE_MONTHLY_CREDITS if user.plan == PlanType.LITE else "无限"),
+                "total": 0 if user.plan == PlanType.FREE else LITE_MONTHLY_CREDITS if user.plan == PlanType.LITE else "无限",
                 "used": user.quota.credits_used,
-                "remaining": 0 if user.plan == PlanType.FREE else (get_available_credits(user) if user.plan == PlanType.LITE else "无限")
-            },
-            "reset_date": user.quota.credits_reset
+                "remaining": get_available_credits(user) if user.plan != PlanType.MAX else "无限",
+                "reset_date": user.quota.credits_reset
+            }
         }
-        
         return info
-        
     except Exception as e:
         logger.error(f"[Quota] 获取配额信息异常: {e}", exc_info=True)
         return {
+            "error": f"获取配额信息失败: {str(e)}",
             "plan": "free",
-            "plan_name": "免费",
-            "error": "获取配额信息失败"
+            "monthly_queries": {"remaining": 0},
+            "monthly_diagnoses": {"remaining": 0},
+            "credits": {"remaining": 0}
         }
 
 
-def consume_credits(openid: str, amount: int = 1) -> Tuple[bool, str]:
+def consume_diagnose(openid: str) -> Tuple[bool, UserRecord, str]:
     """
-    消耗用户credits（供其他功能调用）
-    返回: (success, message)
+    消耗一次深度诊断（外部调用入口）
+    返回: (success, user_record, message)
     """
-    try:
-        user = get_or_create_user(openid)
-        user = _reset_monthly_quota(user)
-        
-        if user.plan == PlanType.MAX:
-            return True, "Pro Max用户，无限使用"
-        
-        if user.plan == PlanType.FREE:
-            return False, "免费用户无credits，请升级套餐"
-        
-        available = get_available_credits(user)
-        if available < amount:
-            return False, f"credits不足（剩余{available}，需要{amount}）"
-        
-        user.quota.credits_used += amount
-        update_user(user)
-        
-        remaining = get_available_credits(user)
-        return True, f"消耗{amount}credits成功，剩余{remaining}"
-        
-    except Exception as e:
-        logger.error(f"[Quota] 消耗credits异常: {e}", exc_info=True)
-        return False, "消耗credits失败"
+    return check_quota(openid, action="diagnose")
+
+
+def consume_query(openid: str) -> Tuple[bool, UserRecord, str]:
+    """
+    消耗一次基础查询（外部调用入口）
+    返回: (success, user_record, message)
+    """
+    return check_quota(openid, action="query")

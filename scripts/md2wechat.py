@@ -70,6 +70,8 @@ def markdown_to_html(md_text: str) -> str:
     quote_lines = []
     in_code_block = False
     code_lines = []
+    in_ordered_list = False
+    ordered_list_items = []
     
     for line in lines:
         stripped = line.strip()
@@ -129,6 +131,10 @@ def markdown_to_html(md_text: str) -> str:
             if in_list:
                 html_parts.append('</ul>')
                 in_list = False
+            if in_ordered_list:
+                html_parts.append('</ol>')
+                in_ordered_list = False
+                ordered_list_items = []
             continue
             
         # 3. 忽略一级标题 (微信草稿有独立的标题字段，正文里重复显示会显得冗余)
@@ -137,66 +143,84 @@ def markdown_to_html(md_text: str) -> str:
             
         # 4. 处理二级标题 <h2>
         if stripped.startswith('## '):
-            if in_list:
-                html_parts.append('</ul>')
-                in_list = False
             title_text = stripped[3:].strip()
-            # 剥离可能存在的 markdown 加粗标记
-            title_text = re.sub(r'\*\*(.*?)\*\*', r'\1', title_text)
+            # 处理标题中的加粗/斜体
+            title_text = _process_inline_formatting(title_text)
             html_parts.append(
-                f'<h2 style="font-size: 19px; font-weight: bold; color: #2b2b2b; '
-                f'margin: 1.6em 0 0.8em 0; border-bottom: 1px solid #eef0f2; padding-bottom: 6px; '
-                f'display: block; line-height: 1.4;">'
-                f'{title_text}</h2>'
+                f'<h2 style="font-size: 18px; font-weight: bold; color: #2b2b2b; '
+                f'margin: 1.5em 0 0.8em 0; padding-bottom: 8px; '
+                f'border-bottom: 1px solid #e8e8e8;">{title_text}</h2>'
             )
             continue
             
-        # 5. 处理无序列表 <ul>
+        # 5. 处理三级标题 <h3>
+        if stripped.startswith('### '):
+            title_text = stripped[4:].strip()
+            title_text = _process_inline_formatting(title_text)
+            html_parts.append(
+                f'<h3 style="font-size: 17px; font-weight: bold; color: #2b2b2b; '
+                f'margin: 1.2em 0 0.6em 0;">{title_text}</h3>'
+            )
+            continue
+            
+        # 6. 处理无序列表 <ul><li>
         if stripped.startswith('- ') or stripped.startswith('* '):
             if not in_list:
-                html_parts.append('<ul style="padding-left: 20px; margin: 1.2em 0; color: #2b2b2b; list-style-type: disc;">')
                 in_list = True
-            item_text = stripped[2:].strip()
-            item_text = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', item_text)
-            html_parts.append(f'<li style="font-size: 17px; line-height: 1.8; margin-bottom: 0.6em;">{item_text}</li>')
+                html_parts.append('<ul style="padding-left: 2em; margin: 1em 0;">')
+            item_content = stripped[2:].strip()
+            item_content = _process_inline_formatting(item_content)
+            html_parts.append(
+                f'<li style="font-size: 17px; line-height: 1.8; color: #2b2b2b; '
+                f'margin-bottom: 0.3em;">{item_content}</li>'
+            )
             continue
-        
-        # 6. 处理有序列表 <ol>
-        if re.match(r'^\d+\.\s', stripped):
+        else:
             if in_list:
                 html_parts.append('</ul>')
                 in_list = False
-            # 提取序号和内容
-            match = re.match(r'^(\d+)\.\s(.*)', stripped)
-            if match:
-                num = match.group(1)
-                item_text = match.group(2)
-                item_text = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', item_text)
-                html_parts.append(
-                    f'<p style="font-size: 17px; line-height: 1.8; margin: 0.8em 0; color: #2b2b2b;">'
-                    f'<span style="font-weight: bold; color: #07C160;">{num}.</span> {item_text}</p>'
-                )
+                
+        # 7. 处理有序列表 <ol><li>
+        ordered_match = re.match(r'^(\d+)\.\s+(.*)', stripped)
+        if ordered_match:
+            if not in_ordered_list:
+                in_ordered_list = True
+                ordered_list_items = []
+            item_content = ordered_match.group(2).strip()
+            item_content = _process_inline_formatting(item_content)
+            ordered_list_items.append(item_content)
             continue
+        else:
+            if in_ordered_list and ordered_list_items:
+                html_parts.append('<ol style="padding-left: 2em; margin: 1em 0;">')
+                for item in ordered_list_items:
+                    html_parts.append(
+                        f'<li style="font-size: 17px; line-height: 1.8; color: #2b2b2b; '
+                        f'margin-bottom: 0.3em;">{item}</li>'
+                    )
+                html_parts.append('</ol>')
+                in_ordered_list = False
+                ordered_list_items = []
         
-        # 7. 处理普通段落
-        if in_list:
-            html_parts.append('</ul>')
-            in_list = False
-        
-        # 处理行内样式：加粗、斜体、链接
-        paragraph = stripped
-        paragraph = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', paragraph)
-        paragraph = re.sub(r'\*(.*?)\*', r'<em>\1</em>', paragraph)
-        paragraph = re.sub(r'\[(.*?)\]\((.*?)\)', r'<a href="\2" style="color: #07C160; text-decoration: none;">\1</a>', paragraph)
-        
+        # 8. 处理图片 ![alt](url)
+        img_match = re.match(r'!\[(.*?)\]\((.*?)\)', stripped)
+        if img_match:
+            alt_text = img_match.group(1)
+            img_url = img_match.group(2)
+            html_parts.append(
+                f'<img src="{img_url}" alt="{alt_text}" style="max-width: 100%; '
+                f'height: auto; margin: 1em 0; border-radius: 4px; display: block;" />'
+            )
+            continue
+            
+        # 9. 处理普通段落
+        paragraph = _process_inline_formatting(stripped)
         html_parts.append(
-            f'<p style="font-size: 17px; line-height: 1.8; margin: 0.8em 0; color: #2b2b2b;">'
-            f'{paragraph}</p>'
+            f'<p style="font-size: 17px; line-height: 1.8; color: #2b2b2b; '
+            f'margin: 0.8em 0; word-wrap: break-word;">{paragraph}</p>'
         )
     
-    # 处理未关闭的标签
-    if in_list:
-        html_parts.append('</ul>')
+    # 清理未关闭的标签
     if in_quote:
         quote_content = "<br/>".join(quote_lines)
         quote_content = remove_emoji(quote_content)
@@ -206,7 +230,21 @@ def markdown_to_html(md_text: str) -> str:
             f'border-radius: 2px; word-wrap: break-word;">'
             f'{quote_content}</blockquote>'
         )
+    
+    if in_list:
+        html_parts.append('</ul>')
+    
+    if in_ordered_list and ordered_list_items:
+        html_parts.append('<ol style="padding-left: 2em; margin: 1em 0;">')
+        for item in ordered_list_items:
+            html_parts.append(
+                f'<li style="font-size: 17px; line-height: 1.8; color: #2b2b2b; '
+                f'margin-bottom: 0.3em;">{item}</li>'
+            )
+        html_parts.append('</ol>')
+    
     if in_code_block:
+        # 未关闭的代码块，直接输出
         code_content = '\n'.join(code_lines)
         code_content = (code_content
             .replace('&', '&amp;')
@@ -225,77 +263,75 @@ def markdown_to_html(md_text: str) -> str:
     return '\n'.join(html_parts)
 
 
-def extract_title_from_md(md_text: str) -> Optional[str]:
-    """从 Markdown 文本中提取第一个一级标题作为文章标题"""
-    for line in md_text.splitlines():
+def _process_inline_formatting(text: str) -> str:
+    """
+    处理行内格式：加粗、斜体、行内代码、链接
+    """
+    # 先处理行内代码 `code`
+    text = re.sub(r'`([^`]+)`', r'<code style="background-color: #f0f0f0; padding: 2px 6px; '
+                 r'border-radius: 3px; font-size: 15px; color: #d63384; '
+                 r'font-family: Consolas, Monaco, monospace;">\1</code>', text)
+    
+    # 处理加粗 **text** 或 __text__
+    text = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', text)
+    text = re.sub(r'__(.+?)__', r'<strong>\1</strong>', text)
+    
+    # 处理斜体 *text* 或 _text_
+    text = re.sub(r'\*(.+?)\*', r'<em>\1</em>', text)
+    text = re.sub(r'_(.+?)_', r'<em>\1</em>', text)
+    
+    # 处理链接 [text](url)
+    text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', 
+                  r'<a href="\2" style="color: #07C160; text-decoration: none;">\1</a>', text)
+    
+    return text
+
+
+def extract_title_and_cover(md_text: str, md_file: Path) -> tuple:
+    """
+    从 Markdown 中提取标题和封面图路径
+    - 标题：第一个 # 开头的行
+    - 封面图：第一个 ![](url) 或 <!-- cover: url --> 注释
+    """
+    title = ""
+    cover_url = ""
+    
+    lines = md_text.splitlines()
+    for line in lines:
         stripped = line.strip()
-        if stripped.startswith('# '):
-            return stripped[2:].strip()
-    return None
-
-
-def extract_cover_image(md_text: str, md_file_path: Path) -> Optional[str]:
-    """
-    从 Markdown 文本中提取封面图路径。
-    优先查找 ![](image.jpg) 格式的图片引用，然后查找本地文件。
-    返回图片的绝对路径或 URL。
-    """
-    # 查找 Markdown 图片语法
-    img_pattern = re.compile(r'!\[.*?\]\((.*?)\)')
-    matches = img_pattern.findall(md_text)
+        
+        # 提取标题
+        if not title and stripped.startswith('# '):
+            title = stripped[2:].strip()
+            
+        # 提取封面图（优先使用 <!-- cover: url --> 注释）
+        cover_match = re.match(r'<!--\s*cover:\s*(.+?)\s*-->', stripped)
+        if cover_match:
+            cover_url = cover_match.group(1).strip()
+            
+        # 如果没有 cover 注释，使用第一个图片
+        if not cover_url:
+            img_match = re.match(r'!\[.*?\]\((.+?)\)', stripped)
+            if img_match:
+                cover_url = img_match.group(1)
     
-    for img_path in matches:
-        # 如果是相对路径，基于 md 文件所在目录解析
-        if not img_path.startswith(('http://', 'https://')):
-            abs_path = md_file_path.parent / img_path
-            if abs_path.exists():
-                return str(abs_path)
-        else:
-            return img_path
+    # 如果还是没有标题，使用文件名
+    if not title:
+        title = md_file.stem.replace('-', ' ').replace('_', ' ').title()
     
-    # 查找 content/images/ 目录下同名图片
-    md_stem = md_file_path.stem
-    images_dir = root_dir / "content" / "images"
-    if images_dir.exists():
-        for ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp']:
-            cover_path = images_dir / f"{md_stem}{ext}"
-            if cover_path.exists():
-                return str(cover_path)
-    
-    return None
+    return title, cover_url
 
 
-def upload_image_to_wechat(access_token: str, image_path: str) -> Optional[str]:
+def upload_draft_to_wechat(
+    access_token: str,
+    title: str,
+    html_content: str,
+    cover_media_id: Optional[str] = None,
+    digest: Optional[str] = None,
+    author: str = "点灯蛙·成都K12升学参谋"
+) -> Dict[str, Any]:
     """
-    上传图片到微信公众号素材库，返回图片的 media_id。
-    用于封面图和正文中的图片。
-    """
-    url = f"https://api.weixin.qq.com/cgi-bin/material/add_material?access_token={access_token}&type=image"
-    
-    try:
-        with open(image_path, 'rb') as f:
-            files = {'media': (os.path.basename(image_path), f, 'image/jpeg')}
-            with httpx.Client(timeout=30.0) as client:
-                response = client.post(url, files=files)
-                result = response.json()
-                
-                if 'media_id' in result:
-                    logger.info(f"图片上传成功: {image_path} -> media_id: {result['media_id']}")
-                    return result['media_id']
-                else:
-                    logger.error(f"图片上传失败: {result}")
-                    return None
-    except Exception as e:
-        logger.error(f"图片上传异常: {e}")
-        return None
-
-
-def create_draft(access_token: str, title: str, html_content: str, 
-                 cover_media_id: Optional[str] = None, 
-                 digest: Optional[str] = None) -> Optional[str]:
-    """
-    创建微信公众号草稿。
-    返回草稿的 media_id。
+    上传图文草稿到微信公众号
     """
     url = f"https://api.weixin.qq.com/cgi-bin/draft/add?access_token={access_token}"
     
@@ -305,13 +341,19 @@ def create_draft(access_token: str, title: str, html_content: str,
         "content": html_content,
         "need_open_comment": 1,
         "only_fans_can_comment": 0,
+        "author": author,
     }
     
     if cover_media_id:
         article["thumb_media_id"] = cover_media_id
     
     if digest:
-        article["digest"] = digest[:120]  # 微信限制摘要长度
+        article["digest"] = digest
+    else:
+        # 自动生成摘要：取前120个字符
+        plain_text = re.sub(r'<[^>]+>', '', html_content)
+        plain_text = re.sub(r'\s+', ' ', plain_text).strip()
+        article["digest"] = plain_text[:120]
     
     payload = {
         "articles": [article]
@@ -322,261 +364,213 @@ def create_draft(access_token: str, title: str, html_content: str,
             response = client.post(url, json=payload)
             result = response.json()
             
-            if 'media_id' in result:
-                logger.info(f"草稿创建成功: {title} -> media_id: {result['media_id']}")
-                return result['media_id']
+            if result.get("errcode") == 0:
+                logger.info(f"✅ 草稿上传成功，media_id: {result.get('media_id')}")
+                return result
             else:
-                logger.error(f"草稿创建失败: {result}")
-                return None
+                logger.error(f"❌ 草稿上传失败: {result.get('errmsg', '未知错误')}")
+                return result
     except Exception as e:
-        logger.error(f"草稿创建异常: {e}")
+        logger.error(f"❌ 上传请求异常: {str(e)}")
+        return {"errcode": -1, "errmsg": str(e)}
+
+
+def upload_image_to_wechat(access_token: str, image_path: Path) -> Optional[str]:
+    """
+    上传图片到微信公众号，返回 media_id
+    """
+    url = f"https://api.weixin.qq.com/cgi-bin/material/add_material?access_token={access_token}&type=image"
+    
+    if not image_path.exists():
+        logger.error(f"❌ 图片文件不存在: {image_path}")
+        return None
+    
+    try:
+        with httpx.Client(timeout=60.0) as client:
+            with open(image_path, "rb") as f:
+                files = {"media": (image_path.name, f, "image/jpeg")}
+                response = client.post(url, files=files)
+                result = response.json()
+                
+                if result.get("errcode") == 0:
+                    logger.info(f"✅ 图片上传成功，media_id: {result.get('media_id')}")
+                    return result.get("media_id")
+                else:
+                    logger.error(f"❌ 图片上传失败: {result.get('errmsg', '未知错误')}")
+                    return None
+    except Exception as e:
+        logger.error(f"❌ 图片上传异常: {str(e)}")
         return None
 
 
-def process_md_file(md_path: Path, upload: bool = False, 
-                    cover_image: Optional[str] = None) -> Dict[str, Any]:
+def process_md_file(
+    md_file: Path,
+    access_token: Optional[str] = None,
+    upload: bool = False,
+    output_dir: Optional[Path] = None
+) -> Dict[str, Any]:
     """
-    处理单个 Markdown 文件，生成 HTML 并可选上传到微信公众号。
-    
-    参数:
-        md_path: Markdown 文件路径
-        upload: 是否上传到微信公众号
-        cover_image: 封面图路径（可选）
-    
-    返回:
-        包含处理结果的字典
+    处理单个 Markdown 文件
     """
-    result = {
-        "file": str(md_path),
-        "success": False,
-        "title": None,
-        "html": None,
-        "draft_media_id": None,
-        "error": None
-    }
+    logger.info(f"📄 处理文件: {md_file}")
     
+    # 读取 Markdown 内容
     try:
-        # 读取 Markdown 文件
-        with open(md_path, 'r', encoding='utf-8') as f:
+        with open(md_file, "r", encoding="utf-8") as f:
             md_text = f.read()
-        
-        # 提取标题
-        title = extract_title_from_md(md_text)
-        if not title:
-            # 使用文件名作为标题
-            title = md_path.stem.replace('-', ' ').replace('_', ' ').title()
-        
-        # 转换为 HTML
-        html_content = markdown_to_html(md_text)
-        
-        # 包装完整的 HTML 文档
-        full_html = f"""<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{title}</title>
-</head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; padding: 0; margin: 0;">
-    <div style="max-width: 100%; padding: 10px 15px;">
-        {html_content}
-    </div>
-</body>
-</html>"""
-        
-        result["title"] = title
-        result["html"] = full_html
-        
-        # 如果需要上传到微信公众号
-        if upload:
-            # 获取 access_token
-            access_token = get_access_token()
-            if not access_token:
-                result["error"] = "获取 access_token 失败"
-                return result
-            
-            # 处理封面图
-            cover_media_id = None
-            if cover_image:
-                cover_media_id = upload_image_to_wechat(access_token, cover_image)
-            else:
-                # 尝试自动查找封面图
-                auto_cover = extract_cover_image(md_text, md_path)
-                if auto_cover:
-                    cover_media_id = upload_image_to_wechat(access_token, auto_cover)
-            
-            # 生成摘要（取前120个字符）
-            digest = re.sub(r'<[^>]+>', '', html_content)[:120]
-            
-            # 创建草稿
-            draft_media_id = create_draft(
-                access_token=access_token,
-                title=title,
-                html_content=full_html,
-                cover_media_id=cover_media_id,
-                digest=digest
-            )
-            
-            if draft_media_id:
-                result["draft_media_id"] = draft_media_id
-                result["success"] = True
-                logger.info(f"成功处理并上传: {md_path.name}")
-            else:
-                result["error"] = "创建草稿失败"
-        else:
-            result["success"] = True
-            logger.info(f"成功处理（仅排版）: {md_path.name}")
-    
     except Exception as e:
-        result["error"] = str(e)
-        logger.error(f"处理文件失败 {md_path}: {e}")
+        logger.error(f"❌ 读取文件失败: {str(e)}")
+        return {"success": False, "error": str(e)}
     
-    return result
-
-
-def process_directory(directory: Path, upload: bool = False,
-                      cover_image: Optional[str] = None) -> List[Dict[str, Any]]:
-    """
-    处理目录下所有 Markdown 文件。
-    """
-    results = []
-    md_files = sorted(directory.glob("*.md"))
+    # 提取标题和封面图
+    title, cover_url = extract_title_and_cover(md_text, md_file)
+    logger.info(f"📝 标题: {title}")
+    if cover_url:
+        logger.info(f"🖼️ 封面图: {cover_url}")
     
-    if not md_files:
-        logger.warning(f"目录 {directory} 中没有找到 Markdown 文件")
-        return results
+    # 转换为 HTML
+    html_content = markdown_to_html(md_text)
     
-    logger.info(f"找到 {len(md_files)} 个 Markdown 文件")
+    # 保存 HTML 到文件
+    if output_dir:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        html_file = output_dir / f"{md_file.stem}.html"
+        try:
+            with open(html_file, "w", encoding="utf-8") as f:
+                f.write(html_content)
+            logger.info(f"💾 HTML 已保存: {html_file}")
+        except Exception as e:
+            logger.error(f"❌ 保存 HTML 失败: {str(e)}")
     
-    for md_file in md_files:
-        logger.info(f"处理文件: {md_file.name}")
-        result = process_md_file(md_file, upload=upload, cover_image=cover_image)
-        results.append(result)
+    # 上传到微信公众号
+    if upload and access_token:
+        # 上传封面图
+        cover_media_id = None
+        if cover_url:
+            cover_path = Path(cover_url)
+            if not cover_path.is_absolute():
+                cover_path = md_file.parent / cover_path
+            if cover_path.exists():
+                cover_media_id = upload_image_to_wechat(access_token, cover_path)
+            else:
+                logger.warning(f"⚠️ 封面图文件不存在: {cover_path}")
+        
+        # 上传草稿
+        result = upload_draft_to_wechat(
+            access_token=access_token,
+            title=title,
+            html_content=html_content,
+            cover_media_id=cover_media_id
+        )
+        
+        if result.get("errcode") == 0:
+            return {
+                "success": True,
+                "title": title,
+                "media_id": result.get("media_id"),
+                "html_content": html_content
+            }
+        else:
+            return {
+                "success": False,
+                "title": title,
+                "error": result.get("errmsg", "上传失败"),
+                "html_content": html_content
+            }
     
-    return results
-
-
-def save_html_output(html_content: str, output_path: Path) -> None:
-    """保存 HTML 到文件"""
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, 'w', encoding='utf-8') as f:
-        f.write(html_content)
-    logger.info(f"HTML 已保存到: {output_path}")
+    return {
+        "success": True,
+        "title": title,
+        "html_content": html_content
+    }
 
 
 def main():
     """主函数"""
     parser = argparse.ArgumentParser(
-        description="Markdown 转微信公众号富文本 HTML 排版工具",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-示例用法:
-  # 仅排版，输出 HTML 到 output/ 目录
-  python scripts/md2wechat.py content/article.md
-  
-  # 排版并上传到微信公众号草稿箱
-  python scripts/md2wechat.py content/article.md --upload
-  
-  # 处理整个目录
-  python scripts/md2wechat.py content/ --upload
-  
-  # 指定封面图
-  python scripts/md2wechat.py content/article.md --upload --cover images/cover.jpg
-  
-  # 输出到指定目录
-  python scripts/md2wechat.py content/article.md --output-dir ./output
-        """
-    )
-    
-    parser.add_argument(
-        "input",
-        help="输入的 Markdown 文件或目录路径"
+        description="Markdown 转微信公众号富文本 HTML 排版工具"
     )
     parser.add_argument(
-        "--upload", "-u",
-        action="store_true",
-        help="上传到微信公众号草稿箱"
+        "files",
+        nargs="*",
+        help="要处理的 Markdown 文件路径（支持通配符）"
     )
     parser.add_argument(
-        "--cover", "-c",
-        help="封面图路径（可选）"
+        "-d", "--directory",
+        default="content",
+        help="Markdown 文件所在目录（默认: content）"
     )
     parser.add_argument(
-        "--output-dir", "-o",
+        "-o", "--output",
         default="output",
         help="HTML 输出目录（默认: output）"
     )
     parser.add_argument(
-        "--verbose", "-v",
+        "-u", "--upload",
         action="store_true",
-        help="详细日志输出"
+        help="上传到微信公众号草稿箱"
+    )
+    parser.add_argument(
+        "--no-save",
+        action="store_true",
+        help="不保存 HTML 文件"
     )
     
     args = parser.parse_args()
     
-    # 设置日志级别
-    if args.verbose:
-        logging.getLogger().setLevel(logging.DEBUG)
-    
-    input_path = Path(args.input)
-    output_dir = Path(args.output_dir)
-    
-    # 处理封面图路径
-    cover_path = None
-    if args.cover:
-        cover_path = Path(args.cover)
-        if not cover_path.exists():
-            logger.error(f"封面图不存在: {cover_path}")
-            sys.exit(1)
-        cover_path = str(cover_path)
-    
-    # 处理输入
-    if input_path.is_file():
-        # 处理单个文件
-        if input_path.suffix.lower() not in ['.md', '.markdown']:
-            logger.error(f"不支持的文件格式: {input_path.suffix}")
-            sys.exit(1)
-        
-        result = process_md_file(input_path, upload=args.upload, cover_image=cover_path)
-        
-        if result["success"] and result["html"]:
-            # 保存 HTML 输出
-            output_file = output_dir / f"{input_path.stem}.html"
-            save_html_output(result["html"], output_file)
-            
-            # 输出结果摘要
-            print(f"\n✅ 处理完成: {input_path.name}")
-            print(f"   标题: {result['title']}")
-            print(f"   HTML: {output_file}")
-            if result["draft_media_id"]:
-                print(f"   草稿 media_id: {result['draft_media_id']}")
-        else:
-            print(f"\n❌ 处理失败: {result.get('error', '未知错误')}")
-            sys.exit(1)
-    
-    elif input_path.is_dir():
-        # 处理目录
-        results = process_directory(input_path, upload=args.upload, cover_image=cover_path)
-        
-        # 保存所有 HTML 输出
-        success_count = 0
-        for result in results:
-            if result["success"] and result["html"]:
-                output_file = output_dir / f"{Path(result['file']).stem}.html"
-                save_html_output(result["html"], output_file)
-                success_count += 1
-                
-                print(f"✅ {Path(result['file']).name}: {result['title']}")
-                if result["draft_media_id"]:
-                    print(f"   草稿 media_id: {result['draft_media_id']}")
-            else:
-                print(f"❌ {Path(result['file']).name}: {result.get('error', '未知错误')}")
-        
-        print(f"\n📊 处理统计: 成功 {success_count}/{len(results)}")
-    
+    # 确定要处理的文件列表
+    md_files = []
+    if args.files:
+        for pattern in args.files:
+            md_files.extend(Path().glob(pattern))
     else:
-        logger.error(f"输入路径不存在: {input_path}")
-        sys.exit(1)
+        content_dir = Path(args.directory)
+        if content_dir.exists():
+            md_files = list(content_dir.glob("*.md"))
+    
+    if not md_files:
+        logger.warning("⚠️ 没有找到 Markdown 文件")
+        return
+    
+    logger.info(f"📚 找到 {len(md_files)} 个 Markdown 文件")
+    
+    # 获取 access_token（如果需要上传）
+    access_token = None
+    if args.upload:
+        try:
+            access_token = get_access_token()
+            logger.info("🔑 获取 access_token 成功")
+        except Exception as e:
+            logger.error(f"❌ 获取 access_token 失败: {str(e)}")
+            return
+    
+    # 输出目录
+    output_dir = None if args.no_save else Path(args.output)
+    
+    # 处理每个文件
+    success_count = 0
+    fail_count = 0
+    
+    for md_file in md_files:
+        result = process_md_file(
+            md_file=md_file,
+            access_token=access_token,
+            upload=args.upload,
+            output_dir=output_dir
+        )
+        
+        if result["success"]:
+            success_count += 1
+            logger.info(f"✅ 处理成功: {result['title']}")
+        else:
+            fail_count += 1
+            logger.error(f"❌ 处理失败: {result.get('title', md_file.name)} - {result.get('error', '未知错误')}")
+    
+    # 输出统计信息
+    logger.info(f"\n📊 处理完成: 成功 {success_count} 个, 失败 {fail_count} 个")
+    
+    if args.upload:
+        logger.info("🚀 已上传到微信公众号草稿箱")
 
 
 if __name__ == "__main__":
