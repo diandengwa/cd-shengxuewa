@@ -130,10 +130,12 @@ class OrderResponse(BaseModel):
     order_id: str
     plan_id: str
     plan_name: str
-    amount: float
+    price: float
+    diagnoses: int
+    valid_days: int
     status: str
-    created_at: str
     payment_url: Optional[str] = None
+    created_at: str
 
 class BalanceResponse(BaseModel):
     """余额查询响应模型"""
@@ -144,19 +146,19 @@ class BalanceResponse(BaseModel):
     is_unlimited: bool
     expire_date: Optional[str] = None
 
-class PlanOption(BaseModel):
-    """套餐选项模型"""
-    plan_id: str
-    name: str
-    price: float
-    diagnoses: int
-    description: str
-    valid_days: int
+class PaymentNotify(BaseModel):
+    """支付回调通知模型"""
+    order_id: str
+    transaction_id: str
+    payment_method: str
+    amount: float
+    status: str
+    sign: Optional[str] = None
 
 # ============================================================
 # 数据库操作辅助函数
 # ============================================================
-def get_db():
+def get_db_connection() -> sqlite3.Connection:
     """获取数据库连接"""
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
@@ -164,651 +166,491 @@ def get_db():
     conn.execute("PRAGMA foreign_keys=ON")
     return conn
 
-def init_payment_tables():
-    """初始化支付相关数据表"""
-    conn = get_db()
-    cursor = conn.cursor()
-    
-    # 订单表
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS orders (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            order_id TEXT UNIQUE NOT NULL,
-            user_id TEXT NOT NULL,
-            plan_id TEXT NOT NULL,
-            amount REAL NOT NULL,
-            payment_method TEXT NOT NULL DEFAULT 'wxpay',
-            status TEXT NOT NULL DEFAULT 'pending',
-            transaction_id TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            paid_at TIMESTAMP,
-            expire_at TIMESTAMP,
-            extra_info TEXT
-        )
-    """)
-    
-    # 用户诊断配额表
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS user_diagnoses (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id TEXT UNIQUE NOT NULL,
-            total_diagnoses INTEGER NOT NULL DEFAULT 0,
-            used_diagnoses INTEGER NOT NULL DEFAULT 0,
-            is_unlimited INTEGER NOT NULL DEFAULT 0,
-            expire_date TIMESTAMP,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    
-    # 诊断使用记录表
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS diagnosis_usage (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id TEXT NOT NULL,
-            order_id TEXT,
-            diagnosis_type TEXT NOT NULL,
-            used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            subject TEXT,
-            grade TEXT
-        )
-    """)
-    
-    conn.commit()
-    conn.close()
-    logger.info("支付相关数据表初始化完成")
+def init_database():
+    """初始化数据库表结构"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # 创建订单表
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS orders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_id TEXT UNIQUE NOT NULL,
+                user_id TEXT NOT NULL,
+                plan_id TEXT NOT NULL,
+                amount REAL NOT NULL,
+                payment_method TEXT NOT NULL DEFAULT 'wxpay',
+                status TEXT NOT NULL DEFAULT 'pending',
+                transaction_id TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                paid_at TIMESTAMP,
+                expire_at TIMESTAMP
+            )
+        """)
+        
+        # 创建用户诊断余额表
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_diagnoses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT UNIQUE NOT NULL,
+                total_diagnoses INTEGER NOT NULL DEFAULT 0,
+                used_diagnoses INTEGER NOT NULL DEFAULT 0,
+                is_unlimited INTEGER NOT NULL DEFAULT 0,
+                expire_date TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # 创建诊断使用记录表
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS diagnosis_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                order_id TEXT,
+                diagnosis_type TEXT NOT NULL,
+                used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                description TEXT
+            )
+        """)
+        
+        conn.commit()
+        logger.info("数据库表初始化完成")
+    except Exception as e:
+        logger.error(f"数据库初始化失败: {e}")
+        raise
+    finally:
+        conn.close()
 
 # ============================================================
 # 工具函数
 # ============================================================
 def generate_order_id() -> str:
     """生成唯一订单号"""
-    timestamp = int(time.time() * 1000)
-    random_str = secrets.token_hex(8)
+    timestamp = int(time.time())
+    random_str = secrets.token_hex(4)
     return f"ORD{timestamp}{random_str}"
 
-def calculate_expire_date(valid_days: int) -> str:
-    """计算过期日期"""
-    expire_date = datetime.now() + timedelta(days=valid_days)
-    return expire_date.strftime("%Y-%m-%d %H:%M:%S")
+def generate_sign(data: Dict[str, Any], key: str) -> str:
+    """生成签名"""
+    sorted_items = sorted(data.items())
+    sign_str = "&".join([f"{k}={v}" for k, v in sorted_items])
+    sign_str += f"&key={key}"
+    return hashlib.md5(sign_str.encode()).hexdigest().upper()
 
-def get_user_balance(user_id: str) -> Dict[str, Any]:
+def verify_sign(data: Dict[str, Any], sign: str, key: str) -> bool:
+    """验证签名"""
+    return generate_sign(data, key) == sign
+
+def get_user_balance(user_id: str) -> Optional[Dict[str, Any]]:
     """获取用户诊断余额"""
-    conn = get_db()
-    cursor = conn.cursor()
-    
-    cursor.execute(
-        "SELECT * FROM user_diagnoses WHERE user_id = ?",
-        (user_id,)
-    )
-    row = cursor.fetchone()
-    conn.close()
-    
-    if row:
-        return {
-            "user_id": row["user_id"],
-            "total_diagnoses": row["total_diagnoses"],
-            "used_diagnoses": row["used_diagnoses"],
-            "remaining_diagnoses": -1 if row["is_unlimited"] else (row["total_diagnoses"] - row["used_diagnoses"]),
-            "is_unlimited": bool(row["is_unlimited"]),
-            "expire_date": row["expire_date"],
-        }
-    else:
-        # 新用户，初始化配额
-        conn = get_db()
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT OR IGNORE INTO user_diagnoses (user_id, total_diagnoses, used_diagnoses) VALUES (?, 0, 0)",
-            (user_id,)
-        )
-        conn.commit()
-        conn.close()
-        return {
-            "user_id": user_id,
-            "total_diagnoses": 0,
-            "used_diagnoses": 0,
-            "remaining_diagnoses": 0,
-            "is_unlimited": False,
-            "expire_date": None,
-        }
-
-def deduct_diagnosis(user_id: str, diagnosis_type: str = "normal", subject: str = None, grade: str = None) -> bool:
-    """扣除一次诊断次数"""
-    conn = get_db()
-    cursor = conn.cursor()
-    
     try:
-        # 获取用户配额
+        conn = get_db_connection()
+        cursor = conn.cursor()
         cursor.execute(
             "SELECT * FROM user_diagnoses WHERE user_id = ?",
             (user_id,)
         )
         row = cursor.fetchone()
-        
-        if not row:
-            logger.error(f"用户 {user_id} 不存在配额记录")
-            return False
-        
-        # 检查是否无限次
-        if row["is_unlimited"]:
-            # 记录使用
-            cursor.execute(
-                "INSERT INTO diagnosis_usage (user_id, diagnosis_type, subject, grade) VALUES (?, ?, ?, ?)",
-                (user_id, diagnosis_type, subject, grade)
-            )
-            conn.commit()
-            return True
-        
-        # 检查剩余次数
-        remaining = row["total_diagnoses"] - row["used_diagnoses"]
-        if remaining <= 0:
-            logger.warning(f"用户 {user_id} 诊断次数不足")
-            return False
-        
-        # 检查是否过期
-        if row["expire_date"]:
-            expire_date = datetime.strptime(row["expire_date"], "%Y-%m-%d %H:%M:%S")
-            if expire_date < datetime.now():
-                logger.warning(f"用户 {user_id} 诊断配额已过期")
-                return False
-        
-        # 扣除次数
-        cursor.execute(
-            "UPDATE user_diagnoses SET used_diagnoses = used_diagnoses + 1, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?",
-            (user_id,)
-        )
-        
-        # 记录使用
-        cursor.execute(
-            "INSERT INTO diagnosis_usage (user_id, diagnosis_type, subject, grade) VALUES (?, ?, ?, ?)",
-            (user_id, diagnosis_type, subject, grade)
-        )
-        
-        conn.commit()
-        return True
-        
+        if row:
+            return dict(row)
+        return None
     except Exception as e:
-        conn.rollback()
-        logger.error(f"扣除诊断次数失败: {str(e)}")
-        return False
+        logger.error(f"获取用户余额失败: {e}")
+        return None
     finally:
         conn.close()
 
-def add_diagnosis_quota(user_id: str, plan_id: str, order_id: str) -> bool:
-    """添加诊断配额（支付成功后调用）"""
-    plan = PLANS.get(plan_id)
-    if not plan:
-        logger.error(f"无效的套餐ID: {plan_id}")
-        return False
-    
-    conn = get_db()
-    cursor = conn.cursor()
-    
+def update_user_diagnoses(user_id: str, diagnoses_count: int, valid_days: int):
+    """更新用户诊断余额"""
     try:
-        # 获取当前配额
-        cursor.execute(
-            "SELECT * FROM user_diagnoses WHERE user_id = ?",
-            (user_id,)
-        )
-        row = cursor.fetchone()
+        conn = get_db_connection()
+        cursor = conn.cursor()
         
-        if row:
-            # 更新现有配额
-            new_total = row["total_diagnoses"] + plan["diagnoses"] if plan["diagnoses"] > 0 else -1
-            is_unlimited = 1 if plan["diagnoses"] == -1 else row["is_unlimited"]
-            expire_date = calculate_expire_date(plan["valid_days"])
-            
-            cursor.execute("""
-                UPDATE user_diagnoses 
-                SET total_diagnoses = ?,
-                    is_unlimited = ?,
-                    expire_date = ?,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE user_id = ?
-            """, (new_total, is_unlimited, expire_date, user_id))
+        # 计算过期时间
+        expire_date = datetime.now() + timedelta(days=valid_days)
+        
+        # 检查用户是否已有余额记录
+        existing = get_user_balance(user_id)
+        
+        if existing:
+            # 更新现有记录
+            if diagnoses_count == -1:  # 无限次套餐
+                cursor.execute("""
+                    UPDATE user_diagnoses 
+                    SET total_diagnoses = -1,
+                        is_unlimited = 1,
+                        expire_date = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE user_id = ?
+                """, (expire_date, user_id))
+            else:
+                cursor.execute("""
+                    UPDATE user_diagnoses 
+                    SET total_diagnoses = total_diagnoses + ?,
+                        expire_date = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE user_id = ?
+                """, (diagnoses_count, expire_date, user_id))
         else:
-            # 创建新配额
-            total = plan["diagnoses"] if plan["diagnoses"] > 0 else -1
-            is_unlimited = 1 if plan["diagnoses"] == -1 else 0
-            expire_date = calculate_expire_date(plan["valid_days"])
-            
+            # 创建新记录
+            is_unlimited = 1 if diagnoses_count == -1 else 0
             cursor.execute("""
                 INSERT INTO user_diagnoses (user_id, total_diagnoses, used_diagnoses, is_unlimited, expire_date)
                 VALUES (?, ?, 0, ?, ?)
-            """, (user_id, total, is_unlimited, expire_date))
+            """, (user_id, diagnoses_count, is_unlimited, expire_date))
         
         conn.commit()
-        logger.info(f"用户 {user_id} 添加诊断配额成功: plan={plan_id}, order={order_id}")
-        return True
-        
+        logger.info(f"用户 {user_id} 诊断余额更新成功")
     except Exception as e:
-        conn.rollback()
-        logger.error(f"添加诊断配额失败: {str(e)}")
-        return False
+        logger.error(f"更新用户诊断余额失败: {e}")
+        raise
     finally:
         conn.close()
 
-# ============================================================
-# 支付模拟函数（实际项目中替换为真实支付SDK）
-# ============================================================
-def create_wxpay_order(order_id: str, amount: float, description: str) -> Dict[str, Any]:
-    """模拟微信支付下单"""
-    # 实际项目中替换为微信支付API调用
-    logger.info(f"模拟微信支付下单: order_id={order_id}, amount={amount}")
-    return {
-        "success": True,
-        "payment_url": f"https://wxpay.example.com/pay?order_id={order_id}",
-        "prepay_id": f"prepay_{order_id}",
-    }
-
-def create_alipay_order(order_id: str, amount: float, description: str) -> Dict[str, Any]:
-    """模拟支付宝下单"""
-    # 实际项目中替换为支付宝API调用
-    logger.info(f"模拟支付宝下单: order_id={order_id}, amount={amount}")
-    return {
-        "success": True,
-        "payment_url": f"https://alipay.example.com/pay?order_id={order_id}",
-        "trade_no": f"trade_{order_id}",
-    }
-
-def verify_wxpay_notification(data: Dict[str, Any]) -> bool:
-    """验证微信支付回调签名"""
-    # 实际项目中实现签名验证
-    return True
-
-def verify_alipay_notification(data: Dict[str, Any]) -> bool:
-    """验证支付宝回调签名"""
-    # 实际项目中实现签名验证
-    return True
+def deduct_diagnosis(user_id: str) -> bool:
+    """扣除一次诊断次数"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # 获取用户余额
+        balance = get_user_balance(user_id)
+        if not balance:
+            return False
+        
+        # 检查是否无限次
+        if balance["is_unlimited"]:
+            # 检查是否过期
+            if balance["expire_date"]:
+                expire_date = datetime.fromisoformat(balance["expire_date"])
+                if expire_date < datetime.now():
+                    return False
+            return True
+        
+        # 检查剩余次数
+        remaining = balance["total_diagnoses"] - balance["used_diagnoses"]
+        if remaining <= 0:
+            return False
+        
+        # 扣除一次
+        cursor.execute("""
+            UPDATE user_diagnoses 
+            SET used_diagnoses = used_diagnoses + 1,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = ?
+        """, (user_id,))
+        
+        conn.commit()
+        return True
+    except Exception as e:
+        logger.error(f"扣除诊断次数失败: {e}")
+        return False
+    finally:
+        conn.close()
 
 # ============================================================
 # API 路由
 # ============================================================
+@router.on_event("startup")
+async def startup_event():
+    """应用启动时初始化数据库"""
+    init_database()
 
-@router.get("/plans", response_model=List[PlanOption])
+@router.get("/plans", response_model=List[Dict[str, Any]])
 async def get_plans():
-    """获取所有套餐选项"""
-    plans = []
+    """获取所有套餐列表"""
+    plans_list = []
     for plan_id, plan in PLANS.items():
-        plans.append(PlanOption(
-            plan_id=plan_id,
-            name=plan["name"],
-            price=plan["price"],
-            diagnoses=plan["diagnoses"],
-            description=plan["description"],
-            valid_days=plan["valid_days"],
-        ))
-    return plans
-
-@router.post("/create_order", response_model=OrderResponse)
-async def create_order(order_data: OrderCreate):
-    """创建支付订单"""
-    try:
-        plan = PLANS[order_data.plan_id]
-        order_id = generate_order_id()
-        
-        # 创建订单记录
-        conn = get_db()
-        cursor = conn.cursor()
-        expire_date = calculate_expire_date(plan["valid_days"])
-        
-        cursor.execute("""
-            INSERT INTO orders (order_id, user_id, plan_id, amount, payment_method, expire_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (
-            order_id,
-            order_data.user_id,
-            order_data.plan_id,
-            plan["price"],
-            order_data.payment_method,
-            expire_date,
-        ))
-        conn.commit()
-        conn.close()
-        
-        # 调用支付接口
-        payment_result = None
-        if order_data.payment_method == "wxpay":
-            payment_result = create_wxpay_order(
-                order_id=order_id,
-                amount=plan["price"],
-                description=plan["name"],
-            )
-        elif order_data.payment_method == "alipay":
-            payment_result = create_alipay_order(
-                order_id=order_id,
-                amount=plan["price"],
-                description=plan["name"],
-            )
-        
-        if payment_result and payment_result.get("success"):
-            return OrderResponse(
-                order_id=order_id,
-                plan_id=order_data.plan_id,
-                plan_name=plan["name"],
-                amount=plan["price"],
-                status="pending",
-                created_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                payment_url=payment_result.get("payment_url"),
-            )
-        else:
-            raise HTTPException(status_code=500, detail="支付接口调用失败")
-            
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"创建订单失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"创建订单失败: {str(e)}")
-
-@router.post("/notify")
-async def payment_notify(request: Request):
-    """支付回调通知处理"""
-    try:
-        # 获取回调数据
-        body = await request.body()
-        data = json.loads(body)
-        
-        logger.info(f"收到支付回调: {data}")
-        
-        # 验证签名（根据支付方式）
-        payment_method = data.get("payment_method", "wxpay")
-        if payment_method == "wxpay":
-            if not verify_wxpay_notification(data):
-                return JSONResponse(content={"code": "FAIL", "message": "签名验证失败"}, status_code=400)
-        elif payment_method == "alipay":
-            if not verify_alipay_notification(data):
-                return JSONResponse(content={"code": "FAIL", "message": "签名验证失败"}, status_code=400)
-        
-        # 获取订单信息
-        order_id = data.get("out_trade_no") or data.get("order_id")
-        transaction_id = data.get("transaction_id") or data.get("trade_no")
-        
-        if not order_id:
-            return JSONResponse(content={"code": "FAIL", "message": "缺少订单号"}, status_code=400)
-        
-        # 更新订单状态
-        conn = get_db()
-        cursor = conn.cursor()
-        
-        cursor.execute(
-            "SELECT * FROM orders WHERE order_id = ?",
-            (order_id,)
-        )
-        order = cursor.fetchone()
-        
-        if not order:
-            conn.close()
-            return JSONResponse(content={"code": "FAIL", "message": "订单不存在"}, status_code=404)
-        
-        if order["status"] == "paid":
-            conn.close()
-            return JSONResponse(content={"code": "SUCCESS", "message": "订单已支付"})
-        
-        # 更新订单为已支付
-        cursor.execute("""
-            UPDATE orders 
-            SET status = 'paid', 
-                transaction_id = ?,
-                paid_at = CURRENT_TIMESTAMP
-            WHERE order_id = ?
-        """, (transaction_id, order_id))
-        
-        # 添加诊断配额
-        add_diagnosis_quota(
-            user_id=order["user_id"],
-            plan_id=order["plan_id"],
-            order_id=order_id,
-        )
-        
-        conn.commit()
-        conn.close()
-        
-        logger.info(f"订单 {order_id} 支付成功，已为用户 {order['user_id']} 添加配额")
-        
-        return JSONResponse(content={"code": "SUCCESS", "message": "支付成功"})
-        
-    except json.JSONDecodeError:
-        return JSONResponse(content={"code": "FAIL", "message": "无效的JSON数据"}, status_code=400)
-    except Exception as e:
-        logger.error(f"支付回调处理失败: {str(e)}")
-        return JSONResponse(content={"code": "FAIL", "message": f"处理失败: {str(e)}"}, status_code=500)
-
-@router.get("/balance/{user_id}", response_model=BalanceResponse)
-async def get_balance(user_id: str):
-    """查询用户诊断余额"""
-    try:
-        balance = get_user_balance(user_id)
-        return BalanceResponse(
-            user_id=balance["user_id"],
-            total_diagnoses=balance["total_diagnoses"],
-            used_diagnoses=balance["used_diagnoses"],
-            remaining_diagnoses=balance["remaining_diagnoses"],
-            is_unlimited=balance["is_unlimited"],
-            expire_date=balance["expire_date"],
-        )
-    except Exception as e:
-        logger.error(f"查询余额失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"查询余额失败: {str(e)}")
-
-@router.get("/orders/{user_id}")
-async def get_user_orders(user_id: str, page: int = Query(1, ge=1), page_size: int = Query(10, ge=1, le=50)):
-    """获取用户订单列表"""
-    try:
-        offset = (page - 1) * page_size
-        
-        conn = get_db()
-        cursor = conn.cursor()
-        
-        # 查询总数
-        cursor.execute(
-            "SELECT COUNT(*) as total FROM orders WHERE user_id = ?",
-            (user_id,)
-        )
-        total = cursor.fetchone()["total"]
-        
-        # 查询订单列表
-        cursor.execute("""
-            SELECT * FROM orders 
-            WHERE user_id = ? 
-            ORDER BY created_at DESC 
-            LIMIT ? OFFSET ?
-        """, (user_id, page_size, offset))
-        
-        orders = []
-        for row in cursor.fetchall():
-            orders.append({
-                "order_id": row["order_id"],
-                "plan_id": row["plan_id"],
-                "amount": row["amount"],
-                "payment_method": row["payment_method"],
-                "status": row["status"],
-                "transaction_id": row["transaction_id"],
-                "created_at": row["created_at"],
-                "paid_at": row["paid_at"],
-                "expire_at": row["expire_at"],
-            })
-        
-        conn.close()
-        
-        return {
-            "total": total,
-            "page": page,
-            "page_size": page_size,
-            "total_pages": (total + page_size - 1) // page_size,
-            "orders": orders,
-        }
-        
-    except Exception as e:
-        logger.error(f"查询订单列表失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"查询订单列表失败: {str(e)}")
-
-@router.get("/usage/{user_id}")
-async def get_diagnosis_usage(
-    user_id: str,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(10, ge=1, le=50)
-):
-    """获取诊断使用记录"""
-    try:
-        offset = (page - 1) * page_size
-        
-        conn = get_db()
-        cursor = conn.cursor()
-        
-        # 查询总数
-        cursor.execute(
-            "SELECT COUNT(*) as total FROM diagnosis_usage WHERE user_id = ?",
-            (user_id,)
-        )
-        total = cursor.fetchone()["total"]
-        
-        # 查询使用记录
-        cursor.execute("""
-            SELECT * FROM diagnosis_usage 
-            WHERE user_id = ? 
-            ORDER BY used_at DESC 
-            LIMIT ? OFFSET ?
-        """, (user_id, page_size, offset))
-        
-        records = []
-        for row in cursor.fetchall():
-            records.append({
-                "id": row["id"],
-                "order_id": row["order_id"],
-                "diagnosis_type": row["diagnosis_type"],
-                "used_at": row["used_at"],
-                "subject": row["subject"],
-                "grade": row["grade"],
-            })
-        
-        conn.close()
-        
-        return {
-            "total": total,
-            "page": page,
-            "page_size": page_size,
-            "total_pages": (total + page_size - 1) // page_size,
-            "records": records,
-        }
-        
-    except Exception as e:
-        logger.error(f"查询使用记录失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"查询使用记录失败: {str(e)}")
-
-@router.post("/deduct")
-async def deduct_diagnosis_api(
-    user_id: str = Form(...),
-    diagnosis_type: str = Form(default="normal"),
-    subject: str = Form(default=None),
-    grade: str = Form(default=None)
-):
-    """扣除诊断次数API（供其他模块调用）"""
-    try:
-        success = deduct_diagnosis(
-            user_id=user_id,
-            diagnosis_type=diagnosis_type,
-            subject=subject,
-            grade=grade,
-        )
-        
-        if success:
-            balance = get_user_balance(user_id)
-            return {
-                "success": True,
-                "message": "诊断次数扣除成功",
-                "remaining_diagnoses": balance["remaining_diagnoses"],
-            }
-        else:
-            return JSONResponse(
-                content={
-                    "success": False,
-                    "message": "诊断次数不足或已过期",
-                },
-                status_code=400,
-            )
-            
-    except Exception as e:
-        logger.error(f"扣除诊断次数失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"扣除诊断次数失败: {str(e)}")
-
-@router.get("/check/{user_id}")
-async def check_diagnosis_available(user_id: str):
-    """检查用户是否可以进行诊断"""
-    try:
-        balance = get_user_balance(user_id)
-        
-        if balance["is_unlimited"]:
-            return {
-                "available": True,
-                "message": "无限次诊断可用",
-                "remaining": -1,
-            }
-        
-        if balance["remaining_diagnoses"] > 0:
-            # 检查是否过期
-            if balance["expire_date"]:
-                expire_date = datetime.strptime(balance["expire_date"], "%Y-%m-%d %H:%M:%S")
-                if expire_date < datetime.now():
-                    return {
-                        "available": False,
-                        "message": "诊断配额已过期",
-                        "remaining": 0,
-                    }
-            
-            return {
-                "available": True,
-                "message": f"剩余 {balance['remaining_diagnoses']} 次诊断",
-                "remaining": balance["remaining_diagnoses"],
-            }
-        else:
-            return {
-                "available": False,
-                "message": "诊断次数不足，请购买套餐",
-                "remaining": 0,
-            }
-            
-    except Exception as e:
-        logger.error(f"检查诊断可用性失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"检查诊断可用性失败: {str(e)}")
-
-# ============================================================
-# 页面路由（Jinja2模板）
-# ============================================================
-
-@router.get("/plans_page", response_class=HTMLResponse)
-async def plans_page(request: Request):
-    """套餐选择页面"""
-    plans = []
-    for plan_id, plan in PLANS.items():
-        plans.append({
-            "plan_id": plan_id,
+        plans_list.append({
+            "id": plan_id,
             "name": plan["name"],
             "price": plan["price"],
             "diagnoses": plan["diagnoses"],
             "description": plan["description"],
             "valid_days": plan["valid_days"],
         })
-    
+    return plans_list
+
+@router.post("/create_order", response_model=OrderResponse)
+async def create_order(order: OrderCreate):
+    """创建订单"""
+    try:
+        # 验证套餐
+        plan = PLANS.get(order.plan_id)
+        if not plan:
+            raise HTTPException(status_code=400, detail="无效的套餐ID")
+        
+        # 生成订单号
+        order_id = generate_order_id()
+        
+        # 计算过期时间
+        expire_at = datetime.now() + timedelta(days=plan["valid_days"])
+        
+        # 保存订单到数据库
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO orders (order_id, user_id, plan_id, amount, payment_method, expire_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (order_id, order.user_id, order.plan_id, plan["price"], order.payment_method, expire_at))
+        conn.commit()
+        
+        # 生成支付链接（模拟）
+        payment_url = f"https://pay.example.com/pay?order_id={order_id}&amount={plan['price']}&method={order.payment_method}"
+        
+        logger.info(f"订单创建成功: {order_id}, 用户: {order.user_id}, 金额: {plan['price']}")
+        
+        return OrderResponse(
+            order_id=order_id,
+            plan_id=order.plan_id,
+            plan_name=plan["name"],
+            price=plan["price"],
+            diagnoses=plan["diagnoses"],
+            valid_days=plan["valid_days"],
+            status="pending",
+            payment_url=payment_url,
+            created_at=datetime.now().isoformat()
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"创建订单失败: {e}")
+        raise HTTPException(status_code=500, detail="创建订单失败")
+    finally:
+        conn.close()
+
+@router.post("/notify")
+async def payment_notify(notify: PaymentNotify):
+    """支付回调通知处理"""
+    try:
+        logger.info(f"收到支付回调: {notify.order_id}, 状态: {notify.status}")
+        
+        # 验证签名（模拟）
+        if notify.sign:
+            sign_data = {
+                "order_id": notify.order_id,
+                "transaction_id": notify.transaction_id,
+                "amount": notify.amount,
+                "status": notify.status
+            }
+            if not verify_sign(sign_data, notify.sign, PAYMENT_CONFIG["wxpay_key"]):
+                logger.warning(f"签名验证失败: {notify.order_id}")
+                return JSONResponse(status_code=400, content={"code": "SIGN_ERROR", "message": "签名验证失败"})
+        
+        # 查询订单
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM orders WHERE order_id = ?", (notify.order_id,))
+        order = cursor.fetchone()
+        
+        if not order:
+            logger.warning(f"订单不存在: {notify.order_id}")
+            return JSONResponse(status_code=404, content={"code": "ORDER_NOT_FOUND", "message": "订单不存在"})
+        
+        order = dict(order)
+        
+        # 检查订单状态
+        if order["status"] != "pending":
+            logger.info(f"订单已处理: {notify.order_id}, 当前状态: {order['status']}")
+            return JSONResponse(content={"code": "SUCCESS", "message": "订单已处理"})
+        
+        # 更新订单状态
+        cursor.execute("""
+            UPDATE orders 
+            SET status = ?, transaction_id = ?, paid_at = CURRENT_TIMESTAMP
+            WHERE order_id = ?
+        """, (notify.status, notify.transaction_id, notify.order_id))
+        
+        # 如果支付成功，更新用户诊断余额
+        if notify.status == "success":
+            plan = PLANS.get(order["plan_id"])
+            if plan:
+                update_user_diagnoses(order["user_id"], plan["diagnoses"], plan["valid_days"])
+                logger.info(f"用户 {order['user_id']} 诊断余额更新成功，增加 {plan['diagnoses']} 次")
+        
+        conn.commit()
+        logger.info(f"订单 {notify.order_id} 处理完成")
+        
+        return JSONResponse(content={"code": "SUCCESS", "message": "处理成功"})
+    except Exception as e:
+        logger.error(f"处理支付回调失败: {e}")
+        return JSONResponse(status_code=500, content={"code": "ERROR", "message": "处理失败"})
+    finally:
+        conn.close()
+
+@router.get("/balance/{user_id}", response_model=BalanceResponse)
+async def get_balance(user_id: str):
+    """查询用户诊断余额"""
+    try:
+        balance = get_user_balance(user_id)
+        
+        if not balance:
+            return BalanceResponse(
+                user_id=user_id,
+                total_diagnoses=0,
+                used_diagnoses=0,
+                remaining_diagnoses=0,
+                is_unlimited=False,
+                expire_date=None
+            )
+        
+        remaining = -1 if balance["is_unlimited"] else balance["total_diagnoses"] - balance["used_diagnoses"]
+        
+        return BalanceResponse(
+            user_id=user_id,
+            total_diagnoses=balance["total_diagnoses"],
+            used_diagnoses=balance["used_diagnoses"],
+            remaining_diagnoses=remaining,
+            is_unlimited=bool(balance["is_unlimited"]),
+            expire_date=balance.get("expire_date")
+        )
+    except Exception as e:
+        logger.error(f"查询余额失败: {e}")
+        raise HTTPException(status_code=500, detail="查询余额失败")
+
+@router.get("/orders/{user_id}", response_model=List[OrderResponse])
+async def get_user_orders(user_id: str):
+    """获取用户订单列表"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC",
+            (user_id,)
+        )
+        rows = cursor.fetchall()
+        
+        orders = []
+        for row in rows:
+            order = dict(row)
+            plan = PLANS.get(order["plan_id"], {})
+            orders.append(OrderResponse(
+                order_id=order["order_id"],
+                plan_id=order["plan_id"],
+                plan_name=plan.get("name", "未知套餐"),
+                price=order["amount"],
+                diagnoses=plan.get("diagnoses", 0),
+                valid_days=plan.get("valid_days", 0),
+                status=order["status"],
+                created_at=order["created_at"]
+            ))
+        
+        return orders
+    except Exception as e:
+        logger.error(f"获取订单列表失败: {e}")
+        raise HTTPException(status_code=500, detail="获取订单列表失败")
+    finally:
+        conn.close()
+
+@router.get("/diagnosis/check/{user_id}")
+async def check_diagnosis_available(user_id: str):
+    """检查用户是否还有诊断次数"""
+    try:
+        balance = get_user_balance(user_id)
+        
+        if not balance:
+            return {"available": False, "remaining": 0, "message": "暂无诊断次数"}
+        
+        # 检查是否无限次
+        if balance["is_unlimited"]:
+            # 检查是否过期
+            if balance["expire_date"]:
+                expire_date = datetime.fromisoformat(balance["expire_date"])
+                if expire_date < datetime.now():
+                    return {"available": False, "remaining": 0, "message": "诊断套餐已过期"}
+            return {"available": True, "remaining": -1, "message": "无限次诊断"}
+        
+        remaining = balance["total_diagnoses"] - balance["used_diagnoses"]
+        if remaining <= 0:
+            return {"available": False, "remaining": 0, "message": "诊断次数已用完"}
+        
+        return {"available": True, "remaining": remaining, "message": f"剩余 {remaining} 次诊断"}
+    except Exception as e:
+        logger.error(f"检查诊断可用性失败: {e}")
+        raise HTTPException(status_code=500, detail="检查诊断可用性失败")
+
+@router.post("/diagnosis/use/{user_id}")
+async def use_diagnosis(user_id: str, diagnosis_type: str = Form(...), description: str = Form("")):
+    """使用一次诊断"""
+    try:
+        # 检查是否有可用次数
+        check_result = await check_diagnosis_available(user_id)
+        if not check_result["available"]:
+            raise HTTPException(status_code=400, detail=check_result["message"])
+        
+        # 扣除次数
+        if not deduct_diagnosis(user_id):
+            raise HTTPException(status_code=500, detail="扣除诊断次数失败")
+        
+        # 记录使用记录
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO diagnosis_records (user_id, diagnosis_type, description)
+            VALUES (?, ?, ?)
+        """, (user_id, diagnosis_type, description))
+        conn.commit()
+        
+        logger.info(f"用户 {user_id} 使用了一次 {diagnosis_type} 诊断")
+        
+        return {"success": True, "message": "诊断使用成功"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"使用诊断失败: {e}")
+        raise HTTPException(status_code=500, detail="使用诊断失败")
+    finally:
+        conn.close()
+
+@router.get("/diagnosis/records/{user_id}")
+async def get_diagnosis_records(user_id: str, limit: int = Query(default=10, le=100)):
+    """获取用户诊断使用记录"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT * FROM diagnosis_records 
+            WHERE user_id = ? 
+            ORDER BY used_at DESC 
+            LIMIT ?
+        """, (user_id, limit))
+        rows = cursor.fetchall()
+        
+        records = []
+        for row in rows:
+            record = dict(row)
+            records.append({
+                "id": record["id"],
+                "diagnosis_type": record["diagnosis_type"],
+                "used_at": record["used_at"],
+                "description": record.get("description", "")
+            })
+        
+        return records
+    except Exception as e:
+        logger.error(f"获取诊断记录失败: {e}")
+        raise HTTPException(status_code=500, detail="获取诊断记录失败")
+    finally:
+        conn.close()
+
+# ============================================================
+# 页面路由
+# ============================================================
+@router.get("/plans_page", response_class=HTMLResponse)
+async def plans_page(request: Request):
+    """套餐选择页面"""
     return templates.TemplateResponse(
         "payment/plans.html",
-        {"request": request, "plans": plans}
+        {"request": request, "plans": PLANS}
     )
 
 @router.get("/balance_page/{user_id}", response_class=HTMLResponse)
 async def balance_page(request: Request, user_id: str):
     """余额查询页面"""
-    try:
-        balance = get_user_balance(user_id)
-        return templates.TemplateResponse(
-            "payment/balance.html",
-            {"request": request, "balance": balance}
-        )
-    except Exception as e:
-        logger.error(f"加载余额页面失败: {str(e)}")
-        raise HTTPException(status_code=500, detail="加载余额页面失败")
-
-# ============================================================
-# 初始化
-# ============================================================
-init_payment_tables()
-logger.info("支付模块路由加载完成")
+    balance = await get_balance(user_id)
+    return templates.TemplateResponse(
+        "payment/balance.html",
+        {"request": request, "balance": balance}
+    )

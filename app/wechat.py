@@ -4,6 +4,7 @@
 md排版 + 微信公众号草稿箱自动上传
 支付相关工具函数（签名生成、回调解析）
 扩展：微信支付V3配置和签名工具函数
+集成微信支付V3：统一下单、回调验签、退款接口
 """
 
 import json
@@ -15,7 +16,7 @@ import xml.etree.ElementTree as ET
 import httpx
 from typing import Optional, Dict, Any, List, Union
 from urllib.parse import quote, urlencode
-from datetime import datetime
+from datetime import datetime, timezone
 import os
 import random
 import string
@@ -122,201 +123,19 @@ def get_access_token() -> str:
                 time.sleep(retry_delay)
                 retry_delay *= 2
                 continue
-            raise ValueError(f"获取access_token网络错误: {e}")
-    
-    raise ValueError("获取access_token失败，已达最大重试次数")
+            raise ValueError(f"获取access_token失败: {e}")
 
 
-def get_permanent_access_token() -> str:
-    """
-    获取稳定的access_token（用于草稿箱API）
-    与get_access_token区分，草稿箱API需使用稳定access_token
-    
-    稳定access_token的有效期更长，且不会频繁刷新，
-    适合用于草稿箱上传等需要长时间稳定连接的操作。
-    
-    Returns:
-        稳定access_token字符串
-    
-    Raises:
-        ValueError: 获取失败时抛出
-    """
-    global _stable_access_token_cache
-    
-    # 检查缓存是否有效（提前10分钟过期，稳定token有效期更长）
-    current_time = time.time()
-    if _stable_access_token_cache["token"] and current_time < _stable_access_token_cache["expires_at"] - 600:
-        return _stable_access_token_cache["token"]
-    
-    if not WECHAT_APPID or not WECHAT_APPSECRET:
-        raise ValueError("WECHAT_APPID 或 WECHAT_APPSECRET 环境变量未设置")
-    
-    url = f"{WECHAT_API_BASE_URL}/token"
-    params = {
-        "grant_type": "client_credential",
-        "appid": WECHAT_APPID,
-        "secret": WECHAT_APPSECRET
-    }
-    
-    max_retries = 3
-    retry_delay = 1
-    
-    for attempt in range(max_retries):
-        try:
-            with httpx.Client(timeout=10.0) as client:
-                response = client.get(url, params=params)
-                response.raise_for_status()
-                data = response.json()
-                
-                if "access_token" in data:
-                    _stable_access_token_cache["token"] = data["access_token"]
-                    _stable_access_token_cache["expires_at"] = current_time + data.get("expires_in", 7200)
-                    logger.info("[WeChatDraft] 稳定access_token获取成功")
-                    return data["access_token"]
-                else:
-                    error_msg = f"获取稳定access_token失败: {data.get('errmsg', '未知错误')}"
-                    logger.error(f"[WeChatDraft] {error_msg}")
-                    if attempt < max_retries - 1:
-                        time.sleep(retry_delay)
-                        retry_delay *= 2
-                        continue
-                    raise ValueError(error_msg)
-                    
-        except httpx.HTTPError as e:
-            logger.error(f"[WeChatDraft] 请求稳定access_token失败 (尝试 {attempt + 1}/{max_retries}): {e}")
-            if attempt < max_retries - 1:
-                time.sleep(retry_delay)
-                retry_delay *= 2
-                continue
-            raise ValueError(f"获取稳定access_token网络错误: {e}")
-    
-    raise ValueError("获取稳定access_token失败，已达最大重试次数")
-
-
-# ============================================================
-# 微信支付V2工具函数（兼容旧版）
-# ============================================================
-
-def generate_pay_sign_v2(params: Dict[str, str]) -> str:
-    """
-    生成微信支付V2签名（MD5）
-    
-    按照微信支付V2签名规则：
-    1. 参数名ASCII码从小到大排序（字典序）
-    2. 使用URL键值对的格式拼接成字符串
-    3. 在最后拼接上key=API密钥
-    4. MD5加密后转大写
-    
-    Args:
-        params: 待签名的参数字典（不包含sign字段）
-    
-    Returns:
-        签名结果字符串（大写）
-    """
-    if not WECHAT_MCHKEY:
-        raise ValueError("WECHAT_MCHKEY 环境变量未设置")
-    
-    # 过滤空值参数，排除sign字段
-    filtered_params = {k: v for k, v in params.items() if v and k != "sign"}
-    
-    # 按字典序排序
-    sorted_keys = sorted(filtered_params.keys())
-    
-    # 拼接字符串
-    sign_str = "&".join([f"{k}={filtered_params[k]}" for k in sorted_keys])
-    sign_str += f"&key={WECHAT_MCHKEY}"
-    
-    # MD5加密
-    sign = hashlib.md5(sign_str.encode("utf-8")).hexdigest().upper()
-    
-    logger.debug(f"[WeChatPayV2] 签名原始字符串: {sign_str}")
-    logger.debug(f"[WeChatPayV2] 生成签名: {sign}")
-    
-    return sign
-
-
-def verify_pay_sign_v2(params: Dict[str, str]) -> bool:
-    """
-    验证微信支付V2回调签名
-    
-    Args:
-        params: 回调参数（包含sign字段）
-    
-    Returns:
-        签名是否有效
-    """
-    if "sign" not in params:
-        logger.warning("[WeChatPayV2] 回调参数中缺少sign字段")
-        return False
-    
-    expected_sign = params["sign"]
-    calculated_sign = generate_pay_sign_v2(params)
-    
-    return expected_sign == calculated_sign
-
-
-def parse_pay_notification_v2(xml_data: str) -> Dict[str, str]:
-    """
-    解析微信支付V2回调通知XML
-    
-    Args:
-        xml_data: XML格式的通知数据
-    
-    Returns:
-        解析后的参数字典
-    """
-    try:
-        root = ET.fromstring(xml_data)
-        result = {}
-        for child in root:
-            result[child.tag] = child.text or ""
-        return result
-    except ET.ParseError as e:
-        logger.error(f"[WeChatPayV2] XML解析失败: {e}")
-        return {}
-
-
-def build_success_response_v2() -> str:
-    """
-    构建微信支付V2回调成功响应XML
-    
-    Returns:
-        成功响应的XML字符串
-    """
-    return """<xml>
-  <return_code><![CDATA[SUCCESS]]></return_code>
-  <return_msg><![CDATA[OK]]></return_msg>
-</xml>"""
-
-
-def build_fail_response_v2(msg: str = "FAIL") -> str:
-    """
-    构建微信支付V2回调失败响应XML
-    
-    Args:
-        msg: 失败原因
-    
-    Returns:
-        失败响应的XML字符串
-    """
-    return f"""<xml>
-  <return_code><![CDATA[FAIL]]></return_code>
-  <return_msg><![CDATA[{msg}]]></return_msg>
-</xml>"""
-
-
-# ============================================================
-# 微信支付V3工具函数
-# ============================================================
-
-def _load_v3_private_key() -> Optional[rsa.RSAPrivateKey]:
+def _load_v3_private_key() -> bytes:
     """
     加载微信支付V3商户私钥
     
-    从文件路径加载商户私钥，用于生成请求签名
-    
     Returns:
-        RSA私钥对象，加载失败返回None
+        私钥PEM格式字节串
+    
+    Raises:
+        FileNotFoundError: 私钥文件不存在
+        ValueError: 私钥加载失败
     """
     global _v3_private_key_cache
     
@@ -324,460 +143,169 @@ def _load_v3_private_key() -> Optional[rsa.RSAPrivateKey]:
         return _v3_private_key_cache
     
     if not WECHAT_PAY_V3_PRIVATE_KEY_PATH:
-        logger.error("[WeChatPayV3] 商户私钥文件路径未设置")
-        return None
+        raise ValueError("WECHAT_PAY_V3_PRIVATE_KEY_PATH 环境变量未设置")
+    
+    if not os.path.exists(WECHAT_PAY_V3_PRIVATE_KEY_PATH):
+        raise FileNotFoundError(f"商户私钥文件不存在: {WECHAT_PAY_V3_PRIVATE_KEY_PATH}")
     
     try:
         with open(WECHAT_PAY_V3_PRIVATE_KEY_PATH, "rb") as f:
-            private_key = serialization.load_pem_private_key(
-                f.read(),
-                password=None,
-                backend=default_backend()
-            )
-        if not isinstance(private_key, rsa.RSAPrivateKey):
-            logger.error("[WeChatPayV3] 加载的私钥不是RSA私钥")
-            return None
-        _v3_private_key_cache = private_key
+            private_key_data = f.read()
+        
+        # 验证私钥格式
+        serialization.load_pem_private_key(
+            private_key_data,
+            password=None,
+            backend=default_backend()
+        )
+        
+        _v3_private_key_cache = private_key_data
         logger.info("[WeChatPayV3] 商户私钥加载成功")
-        return private_key
+        return private_key_data
+        
     except Exception as e:
         logger.error(f"[WeChatPayV3] 加载商户私钥失败: {e}")
-        return None
+        raise ValueError(f"加载商户私钥失败: {e}")
 
 
-def generate_v3_sign(method: str, url: str, body: str = "", nonce_str: Optional[str] = None) -> Dict[str, str]:
+def _get_v3_private_key_object():
     """
-    生成微信支付V3 API请求签名
+    获取V3私钥对象
     
-    按照微信支付V3签名规则：
-    1. 构造签名串：HTTP请求方法 + \\n + URL + \\n + 时间戳 + \\n + 随机串 + \\n + 请求体 + \\n
-    2. 使用商户私钥对签名串进行SHA256withRSA签名
-    3. 构造Authorization头
+    Returns:
+        rsa.RSAPrivateKey对象
+    """
+    private_key_pem = _load_v3_private_key()
+    return serialization.load_pem_private_key(
+        private_key_pem,
+        password=None,
+        backend=default_backend()
+    )
+
+
+def generate_v3_sign(method: str, url_path: str, body: str = "", timestamp: str = None, nonce_str: str = None) -> str:
+    """
+    生成微信支付V3 API签名
     
     Args:
-        method: HTTP方法（GET/POST/PUT等）
-        url: 请求URL（不包含域名，如 /v3/pay/transactions/jsapi）
+        method: HTTP方法（GET/POST/PUT/DELETE）
+        url_path: 请求路径（如 /v3/pay/transactions/jsapi）
         body: 请求体字符串（GET请求为空字符串）
+        timestamp: 时间戳（10位秒级），不传则自动生成
         nonce_str: 随机字符串，不传则自动生成
     
     Returns:
-        包含Authorization头信息的字典，格式为：
-        {
-            "Authorization": "WECHATPAY2-SHA256-RSA2048 ...",
-            "User-Agent": "..."
-        }
+        签名结果字符串
     
     Raises:
-        ValueError: 配置缺失或签名失败时抛出
+        ValueError: 配置缺失或签名失败
     """
     if not WECHAT_PAY_V3_MCHID:
         raise ValueError("WECHAT_PAY_V3_MCHID 环境变量未设置")
     if not WECHAT_PAY_V3_SERIAL_NO:
         raise ValueError("WECHAT_PAY_V3_SERIAL_NO 环境变量未设置")
     
-    private_key = _load_v3_private_key()
-    if private_key is None:
-        raise ValueError("无法加载商户私钥，请检查WECHAT_PAY_V3_PRIVATE_KEY_PATH配置")
+    # 生成时间戳和随机字符串
+    if timestamp is None:
+        timestamp = str(int(time.time()))
+    if nonce_str is None:
+        nonce_str = ''.join(random.choices(string.ascii_letters + string.digits, k=32))
     
-    # 生成时间戳和随机串
-    timestamp = str(int(time.time()))
-    nonce_str = nonce_str or ''.join(random.choices(string.ascii_letters + string.digits, k=32))
-    
-    # 构造签名串
-    sign_str = f"{method}\n{url}\n{timestamp}\n{nonce_str}\n{body}\n"
+    # 构建签名串
+    sign_str = f"{method}\n{url_path}\n{timestamp}\n{nonce_str}\n{body}\n"
     
     try:
-        # SHA256withRSA签名
+        # 加载私钥并签名
+        private_key = _get_v3_private_key_object()
         signature = private_key.sign(
             sign_str.encode("utf-8"),
             padding.PKCS1v15(),
             hashes.SHA256()
         )
-        signature_base64 = base64.b64encode(signature).decode("utf-8")
+        
+        # Base64编码签名
+        signature_b64 = base64.b64encode(signature).decode("utf-8")
+        
+        # 构建Authorization头
+        authorization = (
+            f'WECHATPAY2-SHA256-RSA2048 '
+            f'mchid="{WECHAT_PAY_V3_MCHID}",'
+            f'nonce_str="{nonce_str}",'
+            f'serial_no="{WECHAT_PAY_V3_SERIAL_NO}",'
+            f'signature="{signature_b64}",'
+            f'timestamp="{timestamp}"'
+        )
+        
+        logger.debug(f"[WeChatPayV3] 签名生成成功, method={method}, url_path={url_path}")
+        return authorization
+        
     except Exception as e:
         logger.error(f"[WeChatPayV3] 签名生成失败: {e}")
         raise ValueError(f"签名生成失败: {e}")
+
+
+def _get_v3_headers(method: str, url_path: str, body: str = "", accept: str = "application/json") -> Dict[str, str]:
+    """
+    获取微信支付V3 API请求头
     
-    # 构造Authorization头
-    auth_header = (
-        f'WECHATPAY2-SHA256-RSA2048 '
-        f'mchid="{WECHAT_PAY_V3_MCHID}",'
-        f'nonce_str="{nonce_str}",'
-        f'timestamp="{timestamp}",'
-        f'serial_no="{WECHAT_PAY_V3_SERIAL_NO}",'
-        f'signature="{signature_base64}"'
-    )
+    Args:
+        method: HTTP方法
+        url_path: 请求路径
+        body: 请求体
+        accept: Accept头
     
-    logger.debug(f"[WeChatPayV3] 签名串: {sign_str}")
-    logger.debug(f"[WeChatPayV3] Authorization: {auth_header}")
+    Returns:
+        请求头字典
+    """
+    authorization = generate_v3_sign(method, url_path, body)
     
-    return {
-        "Authorization": auth_header,
-        "User-Agent": "K12-Rocket/2.0",
-        "Content-Type": "application/json"
+    headers = {
+        "Authorization": authorization,
+        "Content-Type": "application/json",
+        "Accept": accept,
+        "User-Agent": "K12-Rocket/2.0"
     }
+    
+    return headers
 
 
-def verify_v3_signature(headers: Dict[str, str], body: str, certificate: Optional[str] = None) -> bool:
-    """
-    验证微信支付V3回调签名
-    
-    验证微信支付平台发送的回调通知的签名，
-    确保通知来自微信支付平台且未被篡改。
-    
-    Args:
-        headers: 回调请求头，需包含Wechatpay-Signature、Wechatpay-Timestamp、
-                 Wechatpay-Nonce、Wechatpay-Serial
-        body: 回调请求体（原始字符串）
-        certificate: 微信支付平台证书公钥（PEM格式），
-                    不传则尝试从缓存获取或下载
-    
-    Returns:
-        签名是否有效
-    """
-    try:
-        # 获取必要的请求头
-        wechatpay_signature = headers.get("Wechatpay-Signature", "")
-        wechatpay_timestamp = headers.get("Wechatpay-Timestamp", "")
-        wechatpay_nonce = headers.get("Wechatpay-Nonce", "")
-        wechatpay_serial = headers.get("Wechatpay-Serial", "")
-        
-        if not all([wechatpay_signature, wechatpay_timestamp, wechatpay_nonce, wechatpay_serial]):
-            logger.warning("[WeChatPayV3] 回调请求头缺少必要字段")
-            return False
-        
-        # 构造待验签字符串
-        sign_str = f"{wechatpay_timestamp}\n{wechatpay_nonce}\n{body}\n"
-        
-        # 解码签名
-        signature = base64.b64decode(wechatpay_signature)
-        
-        # 获取平台证书公钥
-        public_key = _get_platform_public_key(wechatpay_serial, certificate)
-        if public_key is None:
-            logger.error("[WeChatPayV3] 无法获取平台证书公钥")
-            return False
-        
-        # 验证签名
-        try:
-            public_key.verify(
-                signature,
-                sign_str.encode("utf-8"),
-                padding.PKCS1v15(),
-                hashes.SHA256()
-            )
-            logger.info("[WeChatPayV3] 回调签名验证成功")
-            return True
-        except Exception as e:
-            logger.warning(f"[WeChatPayV3] 回调签名验证失败: {e}")
-            return False
-            
-    except Exception as e:
-        logger.error(f"[WeChatPayV3] 验证回调签名时发生异常: {e}")
-        return False
-
-
-# 缓存微信支付平台证书
-_platform_certificates_cache = {
-    "certificates": {},  # serial_no -> public_key
-    "expires_at": 0
-}
-
-
-def _get_platform_public_key(serial_no: str, certificate_pem: Optional[str] = None) -> Optional[rsa.RSAPublicKey]:
-    """
-    获取微信支付平台证书公钥
-    
-    优先使用传入的证书，否则从缓存获取或从微信API下载
-    
-    Args:
-        serial_no: 证书序列号
-        certificate_pem: 证书PEM格式字符串（可选）
-    
-    Returns:
-        RSA公钥对象，获取失败返回None
-    """
-    global _platform_certificates_cache
-    
-    # 如果传入了证书，直接解析
-    if certificate_pem:
-        try:
-            public_key = serialization.load_pem_public_key(
-                certificate_pem.encode("utf-8"),
-                backend=default_backend()
-            )
-            if isinstance(public_key, rsa.RSAPublicKey):
-                return public_key
-        except Exception as e:
-            logger.error(f"[WeChatPayV3] 解析传入的证书失败: {e}")
-            return None
-    
-    # 检查缓存
-    current_time = time.time()
-    if serial_no in _platform_certificates_cache["certificates"] and \
-       current_time < _platform_certificates_cache["expires_at"]:
-        return _platform_certificates_cache["certificates"][serial_no]
-    
-    # 从微信API下载证书
-    try:
-        certificates = _download_platform_certificates()
-        if certificates:
-            _platform_certificates_cache["certificates"] = certificates
-            _platform_certificates_cache["expires_at"] = current_time + 3600  # 缓存1小时
-            if serial_no in certificates:
-                return certificates[serial_no]
-    except Exception as e:
-        logger.error(f"[WeChatPayV3] 下载平台证书失败: {e}")
-    
-    return None
-
-
-def _download_platform_certificates() -> Optional[Dict[str, rsa.RSAPublicKey]]:
-    """
-    从微信支付API下载平台证书
-    
-    使用商户API证书认证，获取微信支付平台证书列表
-    
-    Returns:
-        证书序列号到公钥对象的映射字典，下载失败返回None
-    """
-    url = "/v3/certificates"
-    headers = generate_v3_sign("GET", url)
-    
-    try:
-        with httpx.Client(timeout=10.0, verify=True) as client:
-            response = client.get(
-                f"{WECHAT_PAY_V3_API_BASE_URL}{url}",
-                headers=headers
-            )
-            response.raise_for_status()
-            data = response.json()
-            
-            certificates = {}
-            for cert_info in data.get("data", []):
-                serial_no = cert_info.get("serial_no", "")
-                encrypt_cert = cert_info.get("encrypt_certificate", {})
-                
-                # 解密证书内容
-                try:
-                    cert_pem = _decrypt_certificate(encrypt_cert)
-                    public_key = serialization.load_pem_public_key(
-                        cert_pem.encode("utf-8"),
-                        backend=default_backend()
-                    )
-                    if isinstance(public_key, rsa.RSAPublicKey):
-                        certificates[serial_no] = public_key
-                except Exception as e:
-                    logger.error(f"[WeChatPayV3] 解密证书失败 (serial_no={serial_no}): {e}")
-                    continue
-            
-            return certificates if certificates else None
-            
-    except httpx.HTTPError as e:
-        logger.error(f"[WeChatPayV3] 下载平台证书HTTP请求失败: {e}")
-        return None
-    except Exception as e:
-        logger.error(f"[WeChatPayV3] 下载平台证书异常: {e}")
-        return None
-
-
-def _decrypt_certificate(encrypt_cert: Dict[str, str]) -> str:
-    """
-    解密微信支付平台证书
-    
-    使用APIv3密钥解密加密的证书内容
-    
-    Args:
-        encrypt_cert: 加密证书信息，包含algorithm、nonce、associated_data、ciphertext
-    
-    Returns:
-        解密后的证书PEM字符串
-    
-    Raises:
-        ValueError: 解密失败时抛出
-    """
-    if not WECHAT_PAY_V3_API_V3_KEY:
-        raise ValueError("WECHAT_PAY_V3_API_V3_KEY 环境变量未设置")
-    
-    algorithm = encrypt_cert.get("algorithm", "")
-    nonce = encrypt_cert.get("nonce", "")
-    associated_data = encrypt_cert.get("associated_data", "")
-    ciphertext = encrypt_cert.get("ciphertext", "")
-    
-    if algorithm != "AEAD_AES_256_GCM":
-        raise ValueError(f"不支持的加密算法: {algorithm}")
-    
-    # 使用AEAD_AES_256_GCM解密
-    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-    
-    # 将APIv3密钥转换为字节
-    key = WECHAT_PAY_V3_API_V3_KEY.encode("utf-8")
-    
-    # 解码nonce和ciphertext
-    nonce_bytes = base64.b64decode(nonce)
-    ciphertext_bytes = base64.b64decode(ciphertext)
-    associated_data_bytes = associated_data.encode("utf-8") if associated_data else None
-    
-    # 解密
-    aesgcm = AESGCM(key)
-    plaintext = aesgcm.decrypt(nonce_bytes, ciphertext_bytes, associated_data_bytes)
-    
-    return plaintext.decode("utf-8")
-
-
-def decrypt_v3_notification(associated_data: str, nonce: str, ciphertext: str) -> str:
-    """
-    解密微信支付V3回调通知中的敏感信息
-    
-    使用APIv3密钥解密回调通知中的加密数据，
-    如：支付结果通知中的payer.openid等
-    
-    Args:
-        associated_data: 附加数据
-        nonce: 随机串
-        ciphertext: 密文（Base64编码）
-    
-    Returns:
-        解密后的明文
-    
-    Raises:
-        ValueError: 解密失败时抛出
-    """
-    if not WECHAT_PAY_V3_API_V3_KEY:
-        raise ValueError("WECHAT_PAY_V3_API_V3_KEY 环境变量未设置")
-    
-    try:
-        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-        
-        key = WECHAT_PAY_V3_API_V3_KEY.encode("utf-8")
-        nonce_bytes = base64.b64decode(nonce)
-        ciphertext_bytes = base64.b64decode(ciphertext)
-        associated_data_bytes = associated_data.encode("utf-8") if associated_data else None
-        
-        aesgcm = AESGCM(key)
-        plaintext = aesgcm.decrypt(nonce_bytes, ciphertext_bytes, associated_data_bytes)
-        
-        return plaintext.decode("utf-8")
-        
-    except Exception as e:
-        logger.error(f"[WeChatPayV3] 解密回调通知失败: {e}")
-        raise ValueError(f"解密回调通知失败: {e}")
-
-
-def parse_v3_notification(body: str, headers: Dict[str, str]) -> Optional[Dict[str, Any]]:
-    """
-    解析并验证微信支付V3回调通知
-    
-    完整的回调通知处理流程：
-    1. 验证签名
-    2. 解析JSON
-    3. 解密resource中的敏感信息
-    
-    Args:
-        body: 回调请求体（原始JSON字符串）
-        headers: 回调请求头
-    
-    Returns:
-        解析后的通知数据字典，验证失败返回None
-    """
-    # 验证签名
-    if not verify_v3_signature(headers, body):
-        logger.warning("[WeChatPayV3] 回调通知签名验证失败")
-        return None
-    
-    try:
-        # 解析JSON
-        notification = json.loads(body)
-        
-        # 获取加密数据
-        resource = notification.get("resource", {})
-        if not resource:
-            logger.warning("[WeChatPayV3] 回调通知中缺少resource字段")
-            return notification
-        
-        # 解密敏感信息
-        algorithm = resource.get("algorithm", "")
-        if algorithm == "AEAD_AES_256_GCM":
-            associated_data = resource.get("associated_data", "")
-            nonce = resource.get("nonce", "")
-            ciphertext = resource.get("ciphertext", "")
-            
-            try:
-                decrypted_data = decrypt_v3_notification(associated_data, nonce, ciphertext)
-                notification["decrypted_resource"] = json.loads(decrypted_data)
-            except Exception as e:
-                logger.error(f"[WeChatPayV3] 解密回调通知resource失败: {e}")
-                return notification
-        
-        return notification
-        
-    except json.JSONDecodeError as e:
-        logger.error(f"[WeChatPayV3] 解析回调通知JSON失败: {e}")
-        return None
-    except Exception as e:
-        logger.error(f"[WeChatPayV3] 处理回调通知异常: {e}")
-        return None
-
-
-def build_v3_success_response() -> Dict[str, str]:
-    """
-    构建微信支付V3回调成功响应
-    
-    Returns:
-        成功响应的字典
-    """
-    return {"code": "SUCCESS", "message": "成功"}
-
-
-def build_v3_fail_response(msg: str = "FAIL") -> Dict[str, str]:
-    """
-    构建微信支付V3回调失败响应
-    
-    Args:
-        msg: 失败原因
-    
-    Returns:
-        失败响应的字典
-    """
-    return {"code": "FAIL", "message": msg}
-
-
-# ============================================================
-# 微信支付V3 API调用工具
-# ============================================================
-
-async def create_v3_jsapi_order(
+def create_v3_jsapi_order(
     openid: str,
     total_fee: int,
     description: str,
     out_trade_no: str,
-    attach: Optional[str] = None,
+    attach: str = "",
+    time_expire: Optional[str] = None,
     goods_tag: Optional[str] = None
-) -> Optional[Dict[str, Any]]:
+) -> Dict[str, Any]:
     """
-    创建微信支付V3 JSAPI订单
-    
-    调用微信支付V3统一下单API，创建JSAPI支付订单
+    微信支付V3 JSAPI下单
     
     Args:
-        openid: 用户微信openid
-        total_fee: 订单总金额（单位：分）
+        openid: 用户openid
+        total_fee: 订单金额（单位：分）
         description: 商品描述
         out_trade_no: 商户订单号
-        attach: 附加数据（可选）
-        goods_tag: 商品标记（可选）
+        attach: 附加数据（回调时原样返回）
+        time_expire: 订单过期时间（RFC 3339格式）
+        goods_tag: 商品标记
     
     Returns:
-        下单结果字典，包含prepay_id等字段，失败返回None
+        下单响应结果，包含prepay_id
+    
+    Raises:
+        ValueError: 参数验证失败
+        httpx.HTTPError: 请求失败
     """
+    if not WECHAT_PAY_V3_MCHID:
+        raise ValueError("WECHAT_PAY_V3_MCHID 环境变量未设置")
     if not WECHAT_PAY_V3_NOTIFY_URL:
-        logger.error("[WeChatPayV3] 支付回调地址未设置")
-        return None
+        raise ValueError("WECHAT_PAY_V3_NOTIFY_URL 环境变量未设置")
+    if not WECHAT_APPID:
+        raise ValueError("WECHAT_APPID 环境变量未设置")
     
-    url = "/v3/pay/transactions/jsapi"
-    
-    # 构造请求体
-    body = {
+    # 构建请求体
+    request_body = {
         "appid": WECHAT_APPID,
         "mchid": WECHAT_PAY_V3_MCHID,
         "description": description,
@@ -792,172 +320,608 @@ async def create_v3_jsapi_order(
         }
     }
     
+    # 可选参数
     if attach:
-        body["attach"] = attach
+        request_body["attach"] = attach
+    if time_expire:
+        request_body["time_expire"] = time_expire
     if goods_tag:
-        body["goods_tag"] = goods_tag
+        request_body["goods_tag"] = goods_tag
     
-    # 生成签名
-    body_str = json.dumps(body, ensure_ascii=False)
-    headers = generate_v3_sign("POST", url, body_str)
+    url_path = "/v3/pay/transactions/jsapi"
+    url = f"{WECHAT_PAY_V3_API_BASE_URL}{url_path}"
+    body_str = json.dumps(request_body, ensure_ascii=False)
+    
+    headers = _get_v3_headers("POST", url_path, body_str)
+    
+    max_retries = 3
+    retry_delay = 1
+    
+    for attempt in range(max_retries):
+        try:
+            with httpx.Client(timeout=15.0) as client:
+                response = client.post(url, headers=headers, content=body_str)
+                response.raise_for_status()
+                result = response.json()
+                
+                logger.info(f"[WeChatPayV3] JSAPI下单成功, out_trade_no={out_trade_no}, prepay_id={result.get('prepay_id', 'N/A')}")
+                return result
+                
+        except httpx.HTTPStatusError as e:
+            error_body = e.response.text if e.response else "无响应体"
+            logger.error(f"[WeChatPayV3] JSAPI下单失败 (尝试 {attempt + 1}/{max_retries}): HTTP {e.response.status_code}, body={error_body}")
+            
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+                retry_delay *= 2
+                continue
+            
+            # 尝试解析错误信息
+            try:
+                error_data = json.loads(error_body)
+                raise ValueError(f"JSAPI下单失败: {error_data.get('message', error_body)}")
+            except json.JSONDecodeError:
+                raise ValueError(f"JSAPI下单失败: HTTP {e.response.status_code}, {error_body}")
+                
+        except httpx.HTTPError as e:
+            logger.error(f"[WeChatPayV3] JSAPI下单请求异常 (尝试 {attempt + 1}/{max_retries}): {e}")
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+                retry_delay *= 2
+                continue
+            raise ValueError(f"JSAPI下单请求异常: {e}")
+
+
+def get_v3_order_by_out_trade_no(out_trade_no: str) -> Dict[str, Any]:
+    """
+    微信支付V3查询订单（通过商户订单号）
+    
+    Args:
+        out_trade_no: 商户订单号
+    
+    Returns:
+        订单查询结果
+    
+    Raises:
+        ValueError: 查询失败
+    """
+    if not WECHAT_PAY_V3_MCHID:
+        raise ValueError("WECHAT_PAY_V3_MCHID 环境变量未设置")
+    
+    url_path = f"/v3/pay/transactions/out-trade-no/{out_trade_no}?mchid={WECHAT_PAY_V3_MCHID}"
+    url = f"{WECHAT_PAY_V3_API_BASE_URL}{url_path}"
+    
+    headers = _get_v3_headers("GET", url_path)
     
     try:
-        async with httpx.AsyncClient(timeout=10.0, verify=True) as client:
-            response = await client.post(
-                f"{WECHAT_PAY_V3_API_BASE_URL}{url}",
-                headers=headers,
-                content=body_str
-            )
+        with httpx.Client(timeout=10.0) as client:
+            response = client.get(url, headers=headers)
             response.raise_for_status()
             result = response.json()
             
-            if "prepay_id" in result:
-                logger.info(f"[WeChatPayV3] JSAPI下单成功，prepay_id: {result['prepay_id']}")
-                return result
-            else:
-                logger.error(f"[WeChatPayV3] JSAPI下单返回缺少prepay_id: {result}")
-                return None
-                
+            logger.info(f"[WeChatPayV3] 订单查询成功, out_trade_no={out_trade_no}, trade_state={result.get('trade_state', 'N/A')}")
+            return result
+            
+    except httpx.HTTPStatusError as e:
+        error_body = e.response.text if e.response else "无响应体"
+        logger.error(f"[WeChatPayV3] 订单查询失败: HTTP {e.response.status_code}, body={error_body}")
+        try:
+            error_data = json.loads(error_body)
+            raise ValueError(f"订单查询失败: {error_data.get('message', error_body)}")
+        except json.JSONDecodeError:
+            raise ValueError(f"订单查询失败: HTTP {e.response.status_code}, {error_body}")
+            
     except httpx.HTTPError as e:
-        logger.error(f"[WeChatPayV3] JSAPI下单HTTP请求失败: {e}")
-        return None
+        logger.error(f"[WeChatPayV3] 订单查询请求异常: {e}")
+        raise ValueError(f"订单查询请求异常: {e}")
+
+
+def get_v3_order_by_transaction_id(transaction_id: str) -> Dict[str, Any]:
+    """
+    微信支付V3查询订单（通过微信支付订单号）
+    
+    Args:
+        transaction_id: 微信支付订单号
+    
+    Returns:
+        订单查询结果
+    
+    Raises:
+        ValueError: 查询失败
+    """
+    if not WECHAT_PAY_V3_MCHID:
+        raise ValueError("WECHAT_PAY_V3_MCHID 环境变量未设置")
+    
+    url_path = f"/v3/pay/transactions/id/{transaction_id}?mchid={WECHAT_PAY_V3_MCHID}"
+    url = f"{WECHAT_PAY_V3_API_BASE_URL}{url_path}"
+    
+    headers = _get_v3_headers("GET", url_path)
+    
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            response = client.get(url, headers=headers)
+            response.raise_for_status()
+            result = response.json()
+            
+            logger.info(f"[WeChatPayV3] 订单查询成功, transaction_id={transaction_id}, trade_state={result.get('trade_state', 'N/A')}")
+            return result
+            
+    except httpx.HTTPStatusError as e:
+        error_body = e.response.text if e.response else "无响应体"
+        logger.error(f"[WeChatPayV3] 订单查询失败: HTTP {e.response.status_code}, body={error_body}")
+        try:
+            error_data = json.loads(error_body)
+            raise ValueError(f"订单查询失败: {error_data.get('message', error_body)}")
+        except json.JSONDecodeError:
+            raise ValueError(f"订单查询失败: HTTP {e.response.status_code}, {error_body}")
+            
+    except httpx.HTTPError as e:
+        logger.error(f"[WeChatPayV3] 订单查询请求异常: {e}")
+        raise ValueError(f"订单查询请求异常: {e}")
+
+
+def close_v3_order(out_trade_no: str) -> bool:
+    """
+    微信支付V3关闭订单
+    
+    Args:
+        out_trade_no: 商户订单号
+    
+    Returns:
+        关闭成功返回True
+    
+    Raises:
+        ValueError: 关闭失败
+    """
+    if not WECHAT_PAY_V3_MCHID:
+        raise ValueError("WECHAT_PAY_V3_MCHID 环境变量未设置")
+    
+    url_path = f"/v3/pay/transactions/out-trade-no/{out_trade_no}/close"
+    url = f"{WECHAT_PAY_V3_API_BASE_URL}{url_path}"
+    
+    request_body = {
+        "mchid": WECHAT_PAY_V3_MCHID
+    }
+    body_str = json.dumps(request_body, ensure_ascii=False)
+    
+    headers = _get_v3_headers("POST", url_path, body_str)
+    
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            response = client.post(url, headers=headers, content=body_str)
+            
+            # 关闭订单成功返回204 No Content
+            if response.status_code == 204:
+                logger.info(f"[WeChatPayV3] 订单关闭成功, out_trade_no={out_trade_no}")
+                return True
+            else:
+                response.raise_for_status()
+                return True
+                
+    except httpx.HTTPStatusError as e:
+        error_body = e.response.text if e.response else "无响应体"
+        logger.error(f"[WeChatPayV3] 订单关闭失败: HTTP {e.response.status_code}, body={error_body}")
+        try:
+            error_data = json.loads(error_body)
+            raise ValueError(f"订单关闭失败: {error_data.get('message', error_body)}")
+        except json.JSONDecodeError:
+            raise ValueError(f"订单关闭失败: HTTP {e.response.status_code}, {error_body}")
+            
+    except httpx.HTTPError as e:
+        logger.error(f"[WeChatPayV3] 订单关闭请求异常: {e}")
+        raise ValueError(f"订单关闭请求异常: {e}")
+
+
+def create_v3_refund(
+    out_trade_no: str,
+    refund_amount: int,
+    total_amount: int,
+    out_refund_no: str,
+    reason: Optional[str] = None,
+    refund_desc: Optional[str] = None,
+    notify_url: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    微信支付V3申请退款
+    
+    Args:
+        out_trade_no: 商户订单号（与transaction_id二选一）
+        refund_amount: 退款金额（单位：分）
+        total_amount: 原订单金额（单位：分）
+        out_refund_no: 商户退款单号
+        reason: 退款原因
+        refund_desc: 退款描述
+        notify_url: 退款结果回调地址
+    
+    Returns:
+        退款申请结果
+    
+    Raises:
+        ValueError: 退款申请失败
+    """
+    if not WECHAT_PAY_V3_MCHID:
+        raise ValueError("WECHAT_PAY_V3_MCHID 环境变量未设置")
+    
+    # 构建请求体
+    request_body = {
+        "out_trade_no": out_trade_no,
+        "out_refund_no": out_refund_no,
+        "amount": {
+            "refund": refund_amount,
+            "total": total_amount,
+            "currency": "CNY"
+        }
+    }
+    
+    # 可选参数
+    if reason:
+        request_body["reason"] = reason
+    if refund_desc:
+        request_body["refund_desc"] = refund_desc
+    if notify_url:
+        request_body["notify_url"] = notify_url
+    
+    url_path = "/v3/refund/domestic/refunds"
+    url = f"{WECHAT_PAY_V3_API_BASE_URL}{url_path}"
+    body_str = json.dumps(request_body, ensure_ascii=False)
+    
+    headers = _get_v3_headers("POST", url_path, body_str)
+    
+    max_retries = 3
+    retry_delay = 1
+    
+    for attempt in range(max_retries):
+        try:
+            with httpx.Client(timeout=15.0) as client:
+                response = client.post(url, headers=headers, content=body_str)
+                response.raise_for_status()
+                result = response.json()
+                
+                logger.info(f"[WeChatPayV3] 退款申请成功, out_trade_no={out_trade_no}, out_refund_no={out_refund_no}, refund_id={result.get('refund_id', 'N/A')}")
+                return result
+                
+        except httpx.HTTPStatusError as e:
+            error_body = e.response.text if e.response else "无响应体"
+            logger.error(f"[WeChatPayV3] 退款申请失败 (尝试 {attempt + 1}/{max_retries}): HTTP {e.response.status_code}, body={error_body}")
+            
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+                retry_delay *= 2
+                continue
+            
+            try:
+                error_data = json.loads(error_body)
+                raise ValueError(f"退款申请失败: {error_data.get('message', error_body)}")
+            except json.JSONDecodeError:
+                raise ValueError(f"退款申请失败: HTTP {e.response.status_code}, {error_body}")
+                
+        except httpx.HTTPError as e:
+            logger.error(f"[WeChatPayV3] 退款申请请求异常 (尝试 {attempt + 1}/{max_retries}): {e}")
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+                retry_delay *= 2
+                continue
+            raise ValueError(f"退款申请请求异常: {e}")
+
+
+def query_v3_refund(out_refund_no: str) -> Dict[str, Any]:
+    """
+    微信支付V3查询退款
+    
+    Args:
+        out_refund_no: 商户退款单号
+    
+    Returns:
+        退款查询结果
+    
+    Raises:
+        ValueError: 查询失败
+    """
+    url_path = f"/v3/refund/domestic/refunds/{out_refund_no}"
+    url = f"{WECHAT_PAY_V3_API_BASE_URL}{url_path}"
+    
+    headers = _get_v3_headers("GET", url_path)
+    
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            response = client.get(url, headers=headers)
+            response.raise_for_status()
+            result = response.json()
+            
+            logger.info(f"[WeChatPayV3] 退款查询成功, out_refund_no={out_refund_no}, status={result.get('status', 'N/A')}")
+            return result
+            
+    except httpx.HTTPStatusError as e:
+        error_body = e.response.text if e.response else "无响应体"
+        logger.error(f"[WeChatPayV3] 退款查询失败: HTTP {e.response.status_code}, body={error_body}")
+        try:
+            error_data = json.loads(error_body)
+            raise ValueError(f"退款查询失败: {error_data.get('message', error_body)}")
+        except json.JSONDecodeError:
+            raise ValueError(f"退款查询失败: HTTP {e.response.status_code}, {error_body}")
+            
+    except httpx.HTTPError as e:
+        logger.error(f"[WeChatPayV3] 退款查询请求异常: {e}")
+        raise ValueError(f"退款查询请求异常: {e}")
+
+
+def verify_v3_signature(
+    serial_no: str,
+    signature: str,
+    timestamp: str,
+    nonce: str,
+    body: str
+) -> bool:
+    """
+    验证微信支付V3回调签名
+    
+    Args:
+        serial_no: 微信平台证书序列号
+        signature: 签名值（Base64编码）
+        timestamp: 时间戳
+        nonce: 随机字符串
+        body: 请求体（原始字符串）
+    
+    Returns:
+        签名验证通过返回True
+    
+    Raises:
+        ValueError: 验证失败
+    """
+    # 构建待验签字符串
+    sign_str = f"{timestamp}\n{nonce}\n{body}\n"
+    
+    try:
+        # 获取微信平台证书（实际生产环境应缓存并定期更新）
+        # 这里简化处理，需要从微信平台获取证书
+        # 建议实现一个证书管理器来缓存和更新平台证书
+        platform_cert = _get_platform_certificate(serial_no)
+        if not platform_cert:
+            logger.error(f"[WeChatPayV3] 未找到序列号为 {serial_no} 的平台证书")
+            return False
+        
+        # 验证签名
+        signature_bytes = base64.b64decode(signature)
+        platform_cert.verify(
+            signature_bytes,
+            sign_str.encode("utf-8"),
+            padding.PKCS1v15(),
+            hashes.SHA256()
+        )
+        
+        logger.debug("[WeChatPayV3] 回调签名验证通过")
+        return True
+        
     except Exception as e:
-        logger.error(f"[WeChatPayV3] JSAPI下单异常: {e}")
-        return None
+        logger.error(f"[WeChatPayV3] 回调签名验证失败: {e}")
+        return False
 
 
-def generate_v3_jsapi_package(prepay_id: str) -> Optional[Dict[str, str]]:
+def _get_platform_certificate(serial_no: str):
+    """
+    获取微信平台证书（简化实现）
+    
+    注意：生产环境应实现证书缓存和自动更新机制
+    
+    Args:
+        serial_no: 证书序列号
+    
+    Returns:
+        公钥对象或None
+    """
+    # 实际实现中，应调用 https://api.mch.weixin.qq.com/v3/certificates 获取平台证书
+    # 并缓存证书列表，定期更新
+    # 这里返回None表示需要实际实现证书获取逻辑
+    logger.warning("[WeChatPayV3] 平台证书获取未实现，请实现证书管理器")
+    return None
+
+
+def decrypt_v3_callback_data(associated_data: str, nonce: str, ciphertext: str) -> Dict[str, Any]:
+    """
+    解密微信支付V3回调通知中的加密数据
+    
+    Args:
+        associated_data: 附加数据
+        nonce: 随机串
+        ciphertext: 密文（Base64编码）
+    
+    Returns:
+        解密后的JSON数据
+    
+    Raises:
+        ValueError: 解密失败
+    """
+    if not WECHAT_PAY_V3_API_V3_KEY:
+        raise ValueError("WECHAT_PAY_V3_API_V3_KEY 环境变量未设置")
+    
+    try:
+        # Base64解码密文
+        ciphertext_bytes = base64.b64decode(ciphertext)
+        
+        # 使用APIv3密钥解密（AES-256-GCM）
+        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+        
+        # 提取认证标签（最后16字节）
+        tag = ciphertext_bytes[-16:]
+        encrypted_data = ciphertext_bytes[:-16]
+        
+        # 构建解密器
+        cipher = Cipher(
+            algorithms.AES(WECHAT_PAY_V3_API_V3_KEY.encode("utf-8")),
+            modes.GCM(nonce.encode("utf-8"), tag),
+            backend=default_backend()
+        )
+        
+        decryptor = cipher.decryptor()
+        
+        # 关联数据验证
+        decryptor.authenticate_additional_data(associated_data.encode("utf-8"))
+        
+        # 解密
+        decrypted_data = decryptor.update(encrypted_data) + decryptor.finalize()
+        
+        # 解析JSON
+        result = json.loads(decrypted_data.decode("utf-8"))
+        
+        logger.info("[WeChatPayV3] 回调数据解密成功")
+        return result
+        
+    except Exception as e:
+        logger.error(f"[WeChatPayV3] 回调数据解密失败: {e}")
+        raise ValueError(f"回调数据解密失败: {e}")
+
+
+def parse_v3_callback_notification(request_body: str, request_headers: Dict[str, str]) -> Dict[str, Any]:
+    """
+    解析微信支付V3回调通知
+    
+    Args:
+        request_body: 请求体字符串
+        request_headers: 请求头字典（需包含Wechatpay-Serial、Wechatpay-Signature等）
+    
+    Returns:
+        解析后的通知数据
+    
+    Raises:
+        ValueError: 解析失败或签名验证失败
+    """
+    # 获取必要的请求头
+    wechatpay_serial = request_headers.get("Wechatpay-Serial", "")
+    wechatpay_signature = request_headers.get("Wechatpay-Signature", "")
+    wechatpay_timestamp = request_headers.get("Wechatpay-Timestamp", "")
+    wechatpay_nonce = request_headers.get("Wechatpay-Nonce", "")
+    
+    # 验证必要参数
+    if not all([wechatpay_serial, wechatpay_signature, wechatpay_timestamp, wechatpay_nonce]):
+        raise ValueError("回调请求头缺少必要的验签参数")
+    
+    # 验证签名
+    if not verify_v3_signature(
+        wechatpay_serial,
+        wechatpay_signature,
+        wechatpay_timestamp,
+        wechatpay_nonce,
+        request_body
+    ):
+        raise ValueError("回调签名验证失败")
+    
+    # 解析请求体
+    try:
+        notification = json.loads(request_body)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"回调请求体JSON解析失败: {e}")
+    
+    # 获取加密数据
+    resource = notification.get("resource", {})
+    associated_data = resource.get("associated_data", "")
+    nonce = resource.get("nonce", "")
+    ciphertext = resource.get("ciphertext", "")
+    
+    if not all([nonce, ciphertext]):
+        raise ValueError("回调通知缺少加密数据")
+    
+    # 解密数据
+    decrypted_data = decrypt_v3_callback_data(associated_data, nonce, ciphertext)
+    
+    return {
+        "notification": notification,
+        "decrypted_data": decrypted_data
+    }
+
+
+def generate_jsapi_package(prepay_id: str) -> Dict[str, str]:
     """
     生成JSAPI调起支付所需的参数包
-    
-    根据prepay_id生成JSAPI调起支付所需的参数，
-    包括appId、timeStamp、nonceStr、package、signType、paySign
     
     Args:
         prepay_id: 预支付交易会话ID
     
     Returns:
-        调起支付参数包字典，失败返回None
+        JSAPI调起支付参数包
+    
+    Raises:
+        ValueError: 配置缺失
     """
-    if not prepay_id:
-        logger.error("[WeChatPayV3] prepay_id为空")
-        return None
-    
     if not WECHAT_APPID:
-        logger.error("[WeChatPayV3] WECHAT_APPID未设置")
-        return None
+        raise ValueError("WECHAT_APPID 环境变量未设置")
+    if not WECHAT_PAY_V3_MCHID:
+        raise ValueError("WECHAT_PAY_V3_MCHID 环境变量未设置")
     
-    # 生成参数
-    package = f"prepay_id={prepay_id}"
+    # 生成时间戳和随机字符串
     timestamp = str(int(time.time()))
     nonce_str = ''.join(random.choices(string.ascii_letters + string.digits, k=32))
     
-    # 构造签名串
-    sign_str = f"{WECHAT_APPID}\n{timestamp}\n{nonce_str}\n{package}\n"
-    
-    # 使用商户私钥签名
-    private_key = _load_v3_private_key()
-    if private_key is None:
-        logger.error("[WeChatPayV3] 无法加载商户私钥")
-        return None
+    # 构建签名串
+    package_str = f"prepay_id={prepay_id}"
+    sign_str = f"{WECHAT_APPID}\n{timestamp}\n{nonce_str}\n{package_str}\n"
     
     try:
+        # 使用商户私钥签名
+        private_key = _get_v3_private_key_object()
         signature = private_key.sign(
             sign_str.encode("utf-8"),
             padding.PKCS1v15(),
             hashes.SHA256()
         )
         pay_sign = base64.b64encode(signature).decode("utf-8")
+        
+        # 构建返回参数
+        params = {
+            "appId": WECHAT_APPID,
+            "timeStamp": timestamp,
+            "nonceStr": nonce_str,
+            "package": package_str,
+            "signType": "RSA",
+            "paySign": pay_sign
+        }
+        
+        logger.info("[WeChatPayV3] JSAPI调起支付参数生成成功")
+        return params
+        
     except Exception as e:
-        logger.error(f"[WeChatPayV3] 生成JSAPI签名失败: {e}")
-        return None
-    
-    return {
-        "appId": WECHAT_APPID,
-        "timeStamp": timestamp,
-        "nonceStr": nonce_str,
-        "package": package,
-        "signType": "RSA",
-        "paySign": pay_sign
-    }
+        logger.error(f"[WeChatPayV3] JSAPI调起支付参数生成失败: {e}")
+        raise ValueError(f"JSAPI调起支付参数生成失败: {e}")
 
 
-async def query_v3_order(out_trade_no: str) -> Optional[Dict[str, Any]]:
+def generate_app_package(prepay_id: str) -> Dict[str, str]:
     """
-    查询微信支付V3订单状态
-    
-    使用商户订单号查询微信支付订单状态
+    生成APP调起支付所需的参数包
     
     Args:
-        out_trade_no: 商户订单号
+        prepay_id: 预支付交易会话ID
     
     Returns:
-        订单信息字典，查询失败返回None
-    """
-    if not WECHAT_PAY_V3_MCHID:
-        logger.error("[WeChatPayV3] WECHAT_PAY_V3_MCHID未设置")
-        return None
+        APP调起支付参数包
     
-    url = f"/v3/pay/transactions/out-trade-no/{out_trade_no}?mchid={WECHAT_PAY_V3_MCHID}"
-    headers = generate_v3_sign("GET", url)
+    Raises:
+        ValueError: 配置缺失
+    """
+    if not WECHAT_APPID:
+        raise ValueError("WECHAT_APPID 环境变量未设置")
+    if not WECHAT_PAY_V3_MCHID:
+        raise ValueError("WECHAT_PAY_V3_MCHID 环境变量未设置")
+    
+    # 生成时间戳和随机字符串
+    timestamp = str(int(time.time()))
+    nonce_str = ''.join(random.choices(string.ascii_letters + string.digits, k=32))
+    
+    # 构建签名串
+    sign_str = f"{WECHAT_APPID}\n{timestamp}\n{nonce_str}\n{prepay_id}\n"
     
     try:
-        async with httpx.AsyncClient(timeout=10.0, verify=True) as client:
-            response = await client.get(
-                f"{WECHAT_PAY_V3_API_BASE_URL}{url}",
-                headers=headers
-            )
-            response.raise_for_status()
-            result = response.json()
-            
-            logger.info(f"[WeChatPayV3] 订单查询成功: {out_trade_no}, 状态: {result.get('trade_state')}")
-            return result
-            
-    except httpx.HTTPError as e:
-        logger.error(f"[WeChatPayV3] 订单查询HTTP请求失败: {e}")
-        return None
-    except Exception as e:
-        logger.error(f"[WeChatPayV3] 订单查询异常: {e}")
-        return None
-
-
-async def close_v3_order(out_trade_no: str) -> bool:
-    """
-    关闭微信支付V3订单
-    
-    关闭未支付的订单
-    
-    Args:
-        out_trade_no: 商户订单号
-    
-    Returns:
-        是否关闭成功
-    """
-    if not WECHAT_PAY_V3_MCHID:
-        logger.error("[WeChatPayV3] WECHAT_PAY_V3_MCHID未设置")
-        return False
-    
-    url = f"/v3/pay/transactions/out-trade-no/{out_trade_no}/close"
-    
-    body = {
-        "mchid": WECHAT_PAY_V3_MCHID
-    }
-    body_str = json.dumps(body)
-    headers = generate_v3_sign("POST", url, body_str)
-    
-    try:
-        async with httpx.AsyncClient(timeout=10.0, verify=True) as client:
-            response = await client.post(
-                f"{WECHAT_PAY_V3_API_BASE_URL}{url}",
-                headers=headers,
-                content=body_str
-            )
-            if response.status_code == 204:
-                logger.info(f"[WeChatPayV3] 订单关闭成功: {out_trade_no}")
-                return True
-            else:
-                logger.warning(f"[WeChatPayV3] 订单关闭返回异常状态码: {response.status_code}")
-                return False
-                
-    except httpx.HTTPError as e:
-        logger.error(f"[WeChatPayV3] 订单关闭
+        # 使用商户私钥签名
+        private_key = _get_v3_private_key_object()
+        signature = private_key.sign(
+            sign_str.encode("utf-8"),
+            padding.PKCS1v15(),
+            hashes.SHA256()
+        )
+        pay_sign = base64.b64encode(signature).decode("utf-8")
+        
+        # 构建返回参数
+        params = {
+            "appid": WECHAT_APPID,
+            "partnerid": WECHAT_PAY_V3_MCHID,
+            "prepayid": prepay_id,
+            "package": "Sign=WXPay",
+            "noncestr": nonce_str,

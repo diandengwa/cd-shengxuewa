@@ -1,7 +1,7 @@
 /**
  * K12 Rocket v2.0 — 点灯蛙·成都K12升学参谋
  * 付费模式重构 — 按次诊断计费方案
- * 前端支付交互JS：套餐选择、微信支付唤起、余额显示、诊断确认弹窗
+ * 前端支付交互JS：购买套餐、微信支付唤起、余额显示、诊断确认弹窗
  * 
  * @file app/static/js/payment_v2.js
  * @version 2.0.0
@@ -30,7 +30,13 @@ const PaymentState = {
     // 当前诊断ID（用于确认弹窗）
     currentDiagnosisId: null,
     // 回调URL
-    callbackUrl: null
+    callbackUrl: null,
+    // 微信支付轮询定时器
+    wxPayPollTimer: null,
+    // 微信支付倒计时
+    wxPayCountdown: 300, // 5分钟倒计时（秒）
+    // 微信支付倒计时定时器
+    wxPayCountdownTimer: null
 };
 
 // ============================================================
@@ -119,12 +125,8 @@ function showError(message) {
         
         // 5秒后自动隐藏
         setTimeout(() => {
-            DOM.errorToast.classList.remove('show');
-            DOM.errorToast.classList.add('hidden');
+            hideError();
         }, 5000);
-    } else {
-        console.error('Error:', message);
-        alert(message);
     }
 }
 
@@ -133,8 +135,8 @@ function showError(message) {
  */
 function hideError() {
     if (DOM.errorToast) {
-        DOM.errorToast.classList.remove('show');
         DOM.errorToast.classList.add('hidden');
+        DOM.errorToast.classList.remove('show');
     }
 }
 
@@ -159,34 +161,34 @@ function hideLoading(element) {
 }
 
 /**
- * 显示支付按钮加载状态
+ * 显示弹窗
+ * @param {HTMLElement} dialog - 弹窗元素
+ * @param {HTMLElement} overlay - 遮罩层元素
  */
-function showPayButtonLoading() {
-    if (DOM.payButton) {
-        DOM.payButton.disabled = true;
-        DOM.payButton.classList.add('loading');
+function showDialog(dialog, overlay) {
+    if (dialog) {
+        dialog.classList.remove('hidden');
+        dialog.classList.add('show');
     }
-    if (DOM.payButtonText) {
-        DOM.payButtonText.textContent = '处理中...';
-    }
-    if (DOM.payButtonLoading) {
-        showLoading(DOM.payButtonLoading);
+    if (overlay) {
+        overlay.classList.remove('hidden');
+        overlay.classList.add('show');
     }
 }
 
 /**
- * 隐藏支付按钮加载状态
+ * 隐藏弹窗
+ * @param {HTMLElement} dialog - 弹窗元素
+ * @param {HTMLElement} overlay - 遮罩层元素
  */
-function hidePayButtonLoading() {
-    if (DOM.payButton) {
-        DOM.payButton.disabled = false;
-        DOM.payButton.classList.remove('loading');
+function hideDialog(dialog, overlay) {
+    if (dialog) {
+        dialog.classList.add('hidden');
+        dialog.classList.remove('show');
     }
-    if (DOM.payButtonText) {
-        DOM.payButtonText.textContent = '立即支付';
-    }
-    if (DOM.payButtonLoading) {
-        hideLoading(DOM.payButtonLoading);
+    if (overlay) {
+        overlay.classList.add('hidden');
+        overlay.classList.remove('show');
     }
 }
 
@@ -195,344 +197,192 @@ function hidePayButtonLoading() {
 // ============================================================
 
 /**
- * 获取用户余额
- * @returns {Promise<number>} 用户余额（分）
+ * 通用API请求
+ * @param {string} url - 请求URL
+ * @param {string} method - 请求方法
+ * @param {object} data - 请求数据
+ * @returns {Promise} 请求结果
+ */
+async function apiRequest(url, method = 'GET', data = null) {
+    try {
+        const options = {
+            method: method,
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            credentials: 'same-origin'
+        };
+        
+        if (data && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
+            options.body = JSON.stringify(data);
+        }
+        
+        const response = await fetch(url, options);
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.detail || `请求失败: ${response.status}`);
+        }
+        
+        return await response.json();
+    } catch (error) {
+        console.error('API请求错误:', error);
+        throw error;
+    }
+}
+
+// ============================================================
+// 余额查询
+// ============================================================
+
+/**
+ * 查询用户余额
  */
 async function fetchBalance() {
     try {
-        const response = await fetch('/api/v2/payment/balance', {
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Requested-With': 'XMLHttpRequest'
-            },
-            credentials: 'same-origin'
-        });
+        showLoading(DOM.balanceLoading);
         
-        if (!response.ok) {
-            throw new Error(`获取余额失败: ${response.status} ${response.statusText}`);
+        const data = await apiRequest('/api/v2/payment/balance');
+        
+        if (data.success) {
+            PaymentState.balance = data.balance || 0;
+            PaymentState.user = data.user || null;
+            updateBalanceDisplay();
+        } else {
+            showError(data.message || '获取余额失败');
         }
-        
-        const data = await response.json();
-        if (data.code !== 0) {
-            throw new Error(data.message || '获取余额失败');
-        }
-        
-        return data.data.balance;
     } catch (error) {
-        console.error('获取余额失败:', error);
-        throw error;
+        showError('获取余额失败: ' + error.message);
+    } finally {
+        hideLoading(DOM.balanceLoading);
     }
 }
-
-/**
- * 获取套餐列表
- * @returns {Promise<Array>} 套餐列表
- */
-async function fetchPackages() {
-    try {
-        const response = await fetch('/api/v2/payment/packages', {
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Requested-With': 'XMLHttpRequest'
-            },
-            credentials: 'same-origin'
-        });
-        
-        if (!response.ok) {
-            throw new Error(`获取套餐失败: ${response.status} ${response.statusText}`);
-        }
-        
-        const data = await response.json();
-        if (data.code !== 0) {
-            throw new Error(data.message || '获取套餐失败');
-        }
-        
-        return data.data.packages;
-    } catch (error) {
-        console.error('获取套餐失败:', error);
-        throw error;
-    }
-}
-
-/**
- * 创建微信支付订单
- * @param {string} packageId - 套餐ID
- * @returns {Promise<Object>} 支付参数
- */
-async function createWxPayOrder(packageId) {
-    try {
-        const response = await fetch('/api/v2/payment/wxpay/create', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Requested-With': 'XMLHttpRequest'
-            },
-            credentials: 'same-origin',
-            body: JSON.stringify({
-                package_id: packageId
-            })
-        });
-        
-        if (!response.ok) {
-            throw new Error(`创建支付订单失败: ${response.status} ${response.statusText}`);
-        }
-        
-        const data = await response.json();
-        if (data.code !== 0) {
-            throw new Error(data.message || '创建支付订单失败');
-        }
-        
-        return data.data;
-    } catch (error) {
-        console.error('创建支付订单失败:', error);
-        throw error;
-    }
-}
-
-/**
- * 查询支付状态
- * @param {string} orderId - 订单ID
- * @returns {Promise<Object>} 支付状态
- */
-async function queryPaymentStatus(orderId) {
-    try {
-        const response = await fetch(`/api/v2/payment/wxpay/status/${orderId}`, {
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Requested-With': 'XMLHttpRequest'
-            },
-            credentials: 'same-origin'
-        });
-        
-        if (!response.ok) {
-            throw new Error(`查询支付状态失败: ${response.status} ${response.statusText}`);
-        }
-        
-        const data = await response.json();
-        if (data.code !== 0) {
-            throw new Error(data.message || '查询支付状态失败');
-        }
-        
-        return data.data;
-    } catch (error) {
-        console.error('查询支付状态失败:', error);
-        throw error;
-    }
-}
-
-/**
- * 使用余额支付诊断
- * @param {string} diagnosisId - 诊断ID
- * @returns {Promise<Object>} 支付结果
- */
-async function payWithBalance(diagnosisId) {
-    try {
-        const response = await fetch('/api/v2/payment/balance/pay', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Requested-With': 'XMLHttpRequest'
-            },
-            credentials: 'same-origin',
-            body: JSON.stringify({
-                diagnosis_id: diagnosisId
-            })
-        });
-        
-        if (!response.ok) {
-            throw new Error(`余额支付失败: ${response.status} ${response.statusText}`);
-        }
-        
-        const data = await response.json();
-        if (data.code !== 0) {
-            throw new Error(data.message || '余额支付失败');
-        }
-        
-        return data.data;
-    } catch (error) {
-        console.error('余额支付失败:', error);
-        throw error;
-    }
-}
-
-// ============================================================
-// 余额显示模块
-// ============================================================
 
 /**
  * 更新余额显示
- * @param {number} balance - 余额（分）
  */
-function updateBalanceDisplay(balance) {
-    PaymentState.balance = balance;
-    
+function updateBalanceDisplay() {
     if (DOM.balanceAmount) {
-        DOM.balanceAmount.textContent = `¥${formatAmount(balance)}`;
+        DOM.balanceAmount.textContent = formatAmount(PaymentState.balance);
     }
-    
-    if (DOM.balanceLoading) {
-        hideLoading(DOM.balanceLoading);
-    }
-    
     if (DOM.balanceDisplay) {
         DOM.balanceDisplay.classList.remove('hidden');
     }
 }
 
+// ============================================================
+// 套餐管理
+// ============================================================
+
 /**
- * 加载余额
+ * 获取套餐列表
  */
-async function loadBalance() {
+async function fetchPackages() {
     try {
-        if (DOM.balanceLoading) {
-            showLoading(DOM.balanceLoading);
-        }
+        showLoading(DOM.packageLoading);
+        hideLoading(DOM.packageError);
         
-        const balance = await fetchBalance();
-        updateBalanceDisplay(balance);
-    } catch (error) {
-        console.error('加载余额失败:', error);
-        if (DOM.balanceLoading) {
-            hideLoading(DOM.balanceLoading);
+        const data = await apiRequest('/api/v2/payment/packages');
+        
+        if (data.success) {
+            PaymentState.packages = data.packages || [];
+            renderPackages();
+        } else {
+            showError(data.message || '获取套餐列表失败');
+            showLoading(DOM.packageError);
         }
-        // 余额加载失败不阻塞页面，显示默认值
-        updateBalanceDisplay(0);
+    } catch (error) {
+        showError('获取套餐列表失败: ' + error.message);
+        showLoading(DOM.packageError);
+    } finally {
+        hideLoading(DOM.packageLoading);
     }
 }
 
-// ============================================================
-// 套餐选择模块
-// ============================================================
-
 /**
- * 渲染套餐卡片
- * @param {Array} packages - 套餐列表
+ * 渲染套餐列表
  */
-function renderPackages(packages) {
-    PaymentState.packages = packages;
-    
+function renderPackages() {
     if (!DOM.packageList) return;
     
-    // 清空现有内容
     DOM.packageList.innerHTML = '';
     
-    if (!packages || packages.length === 0) {
+    if (PaymentState.packages.length === 0) {
         DOM.packageList.innerHTML = '<div class="empty-state">暂无可用套餐</div>';
         return;
     }
     
-    // 渲染每个套餐
-    packages.forEach((pkg, index) => {
-        const card = document.createElement('div');
-        card.className = 'package-card';
-        card.dataset.packageId = pkg.id;
-        card.dataset.index = index;
+    PaymentState.packages.forEach((pkg, index) => {
+        const packageCard = document.createElement('div');
+        packageCard.className = 'package-card';
+        packageCard.dataset.packageId = pkg.id;
         
-        // 计算优惠信息
+        // 计算折扣信息
         const originalPrice = pkg.original_price || pkg.price;
         const discount = originalPrice > pkg.price ? Math.round((1 - pkg.price / originalPrice) * 100) : 0;
         
-        card.innerHTML = `
+        packageCard.innerHTML = `
             <div class="package-card-header">
                 <h3 class="package-name">${pkg.name}</h3>
-                ${discount > 0 ? `<span class="package-discount-badge">-${discount}%</span>` : ''}
+                ${discount > 0 ? `<span class="package-discount">-${discount}%</span>` : ''}
             </div>
             <div class="package-card-body">
-                <div class="package-diagnosis-count">
-                    <span class="count-number">${pkg.diagnosis_count}</span>
-                    <span class="count-label">次诊断</span>
-                </div>
                 <div class="package-price">
-                    <span class="price-current">¥${formatAmount(pkg.price)}</span>
+                    <span class="price-symbol">¥</span>
+                    <span class="price-amount">${formatAmount(pkg.price)}</span>
                     ${originalPrice > pkg.price ? `<span class="price-original">¥${formatAmount(originalPrice)}</span>` : ''}
                 </div>
+                <div class="package-diagnoses">
+                    <span class="diagnosis-count">${pkg.diagnosis_count}</span>
+                    <span class="diagnosis-label">次诊断</span>
+                </div>
                 ${pkg.description ? `<p class="package-description">${pkg.description}</p>` : ''}
-                ${pkg.features && pkg.features.length > 0 ? `
-                    <ul class="package-features">
-                        ${pkg.features.map(f => `<li>${f}</li>`).join('')}
-                    </ul>
-                ` : ''}
+                ${pkg.bonus_count > 0 ? `<p class="package-bonus">赠送 ${pkg.bonus_count} 次诊断</p>` : ''}
             </div>
             <div class="package-card-footer">
-                <button class="package-select-btn" data-package-id="${pkg.id}">
+                <button class="btn btn-primary select-package-btn" data-package-id="${pkg.id}">
                     选择套餐
                 </button>
             </div>
         `;
         
         // 添加选择事件
-        const selectBtn = card.querySelector('.package-select-btn');
-        selectBtn.addEventListener('click', () => selectPackage(pkg.id));
+        const selectBtn = packageCard.querySelector('.select-package-btn');
+        selectBtn.addEventListener('click', () => selectPackage(pkg));
         
-        DOM.packageList.appendChild(card);
+        DOM.packageList.appendChild(packageCard);
     });
     
-    // 默认选中第一个套餐
-    if (packages.length > 0) {
-        selectPackage(packages[0].id);
+    // 如果有默认选中的套餐
+    if (PaymentState.selectedPackage) {
+        highlightSelectedPackage(PaymentState.selectedPackage.id);
     }
 }
 
 /**
  * 选择套餐
- * @param {string} packageId - 套餐ID
+ * @param {object} pkg - 套餐对象
  */
-function selectPackage(packageId) {
-    const pkg = PaymentState.packages.find(p => p.id === packageId);
-    if (!pkg) return;
-    
+function selectPackage(pkg) {
     PaymentState.selectedPackage = pkg;
-    
-    // 更新UI选中状态
-    const cards = DOM.packageList.querySelectorAll('.package-card');
-    cards.forEach(card => {
-        card.classList.remove('selected');
-        if (card.dataset.packageId === packageId) {
-            card.classList.add('selected');
-        }
-    });
-    
-    // 更新支付按钮状态
+    highlightSelectedPackage(pkg.id);
     updatePayButton();
 }
 
 /**
- * 加载套餐列表
+ * 高亮选中的套餐
+ * @param {number} packageId - 套餐ID
  */
-async function loadPackages() {
-    try {
-        if (DOM.packageLoading) {
-            showLoading(DOM.packageLoading);
+function highlightSelectedPackage(packageId) {
+    const packageCards = document.querySelectorAll('.package-card');
+    packageCards.forEach(card => {
+        card.classList.remove('selected');
+        if (card.dataset.packageId == packageId) {
+            card.classList.add('selected');
         }
-        if (DOM.packageError) {
-            DOM.packageError.classList.add('hidden');
-        }
-        
-        const packages = await fetchPackages();
-        renderPackages(packages);
-        
-        if (DOM.packageLoading) {
-            hideLoading(DOM.packageLoading);
-        }
-    } catch (error) {
-        console.error('加载套餐失败:', error);
-        if (DOM.packageLoading) {
-            hideLoading(DOM.packageLoading);
-        }
-        if (DOM.packageError) {
-            DOM.packageError.classList.remove('hidden');
-            DOM.packageError.textContent = '加载套餐失败，请稍后重试';
-        }
-        showError('加载套餐失败，请刷新页面重试');
-    }
+    });
 }
-
-// ============================================================
-// 支付按钮模块
-// ============================================================
 
 /**
  * 更新支付按钮状态
@@ -540,232 +390,226 @@ async function loadPackages() {
 function updatePayButton() {
     if (!DOM.payButton) return;
     
-    const pkg = PaymentState.selectedPackage;
-    if (!pkg) {
+    if (PaymentState.selectedPackage) {
+        DOM.payButton.disabled = false;
+        DOM.payButtonText.textContent = `立即支付 ¥${formatAmount(PaymentState.selectedPackage.price)}`;
+    } else {
         DOM.payButton.disabled = true;
         DOM.payButtonText.textContent = '请选择套餐';
-        return;
     }
-    
-    DOM.payButton.disabled = false;
-    DOM.payButtonText.textContent = `立即支付 ¥${formatAmount(pkg.price)}`;
 }
 
+// ============================================================
+// 支付流程
+// ============================================================
+
 /**
- * 处理支付按钮点击
+ * 发起支付
  */
-async function handlePayButtonClick() {
-    if (PaymentState.paymentStatus === 'processing') return;
-    
-    const pkg = PaymentState.selectedPackage;
-    if (!pkg) {
+async function initiatePayment() {
+    if (!PaymentState.selectedPackage) {
         showError('请先选择套餐');
         return;
     }
     
-    // 检查用户是否已登录
-    if (!PaymentState.user) {
-        showError('请先登录');
-        window.location.href = '/auth/login?redirect=' + encodeURIComponent(window.location.pathname);
+    if (PaymentState.paymentStatus === 'processing') {
+        showError('支付处理中，请稍候...');
         return;
     }
     
-    PaymentState.paymentStatus = 'processing';
-    showPayButtonLoading();
-    
     try {
-        // 创建微信支付订单
-        const payData = await createWxPayOrder(pkg.id);
-        PaymentState.wxPayParams = payData;
+        PaymentState.paymentStatus = 'processing';
+        updatePaymentButtonState(true);
         
-        // 显示微信支付二维码
-        showWxPayQrCode(payData);
+        const data = await apiRequest('/api/v2/payment/create-order', 'POST', {
+            package_id: PaymentState.selectedPackage.id,
+            callback_url: PaymentState.callbackUrl || window.location.href
+        });
         
-        // 开始轮询支付状态
-        startPaymentPolling(payData.order_id);
+        if (data.success) {
+            PaymentState.wxPayParams = data.wx_pay_params;
+            
+            // 显示微信支付二维码
+            showWxPayQRCode(data.wx_pay_params);
+            
+            // 开始轮询支付状态
+            startWxPayPolling(data.order_id);
+        } else {
+            showError(data.message || '创建订单失败');
+            PaymentState.paymentStatus = 'idle';
+            updatePaymentButtonState(false);
+        }
     } catch (error) {
-        console.error('支付失败:', error);
-        PaymentState.paymentStatus = 'failed';
-        hidePayButtonLoading();
         showError('支付失败: ' + error.message);
+        PaymentState.paymentStatus = 'idle';
+        updatePaymentButtonState(false);
     }
 }
 
-// ============================================================
-// 微信支付二维码模块
-// ============================================================
+/**
+ * 更新支付按钮状态
+ * @param {boolean} isLoading - 是否正在加载
+ */
+function updatePaymentButtonState(isLoading) {
+    if (!DOM.payButton) return;
+    
+    if (isLoading) {
+        DOM.payButton.disabled = true;
+        DOM.payButtonText.textContent = '支付处理中...';
+        showLoading(DOM.payButtonLoading);
+    } else {
+        DOM.payButton.disabled = !PaymentState.selectedPackage;
+        DOM.payButtonText.textContent = PaymentState.selectedPackage 
+            ? `立即支付 ¥${formatAmount(PaymentState.selectedPackage.price)}`
+            : '请选择套餐';
+        hideLoading(DOM.payButtonLoading);
+    }
+}
 
 /**
  * 显示微信支付二维码
- * @param {Object} payData - 支付数据
+ * @param {object} wxPayParams - 微信支付参数
  */
-function showWxPayQrCode(payData) {
-    if (!DOM.wxPayQrCodeContainer) return;
+function showWxPayQRCode(wxPayParams) {
+    if (!DOM.wxPayQrCodeContainer || !DOM.wxPayQrCode) return;
     
     // 显示二维码容器
     DOM.wxPayQrCodeContainer.classList.remove('hidden');
     
     // 生成二维码（使用qrcode.js库）
-    if (DOM.wxPayQrCode && payData.qr_code_url) {
-        // 清空二维码容器
+    if (typeof QRCode !== 'undefined') {
         DOM.wxPayQrCode.innerHTML = '';
-        
-        // 使用QRCode库生成二维码
-        if (typeof QRCode !== 'undefined') {
-            new QRCode(DOM.wxPayQrCode, {
-                text: payData.qr_code_url,
-                width: 200,
-                height: 200,
-                colorDark: '#000000',
-                colorLight: '#ffffff',
-                correctLevel: QRCode.CorrectLevel.H
-            });
-        } else {
-            // 如果QRCode库未加载，显示图片二维码
-            const img = document.createElement('img');
-            img.src = payData.qr_code_url;
-            img.alt = '微信支付二维码';
-            img.className = 'wx-pay-qrcode-img';
-            DOM.wxPayQrCode.appendChild(img);
-        }
-    }
-    
-    // 更新支付状态显示
-    if (DOM.wxPayStatus) {
-        DOM.wxPayStatus.textContent = '请使用微信扫描二维码支付';
+        new QRCode(DOM.wxPayQrCode, {
+            text: wxPayParams.code_url,
+            width: 200,
+            height: 200,
+            colorDark: '#000000',
+            colorLight: '#ffffff',
+            correctLevel: QRCode.CorrectLevel.H
+        });
+    } else {
+        // 如果没有QRCode库，显示备用信息
+        DOM.wxPayQrCode.innerHTML = `
+            <div class="qr-code-fallback">
+                <p>请使用微信扫描下方二维码支付</p>
+                <p class="qr-code-url">${wxPayParams.code_url}</p>
+            </div>
+        `;
     }
     
     // 开始倒计时
-    startWxPayTimer(payData.expire_time || 300);
+    startWxPayCountdown();
+    
+    // 更新状态显示
+    if (DOM.wxPayStatus) {
+        DOM.wxPayStatus.textContent = '等待扫码支付...';
+    }
 }
 
 /**
- * 微信支付倒计时
- * @param {number} expireSeconds - 过期时间（秒）
+ * 开始微信支付倒计时
  */
-function startWxPayTimer(expireSeconds) {
-    if (!DOM.wxPayTimer) return;
+function startWxPayCountdown() {
+    PaymentState.wxPayCountdown = 300; // 5分钟
     
-    let remaining = expireSeconds;
+    if (DOM.wxPayTimer) {
+        DOM.wxPayTimer.textContent = formatTime(PaymentState.wxPayCountdown);
+    }
     
-    const updateTimer = () => {
-        if (remaining <= 0) {
-            DOM.wxPayTimer.textContent = '二维码已过期';
-            DOM.wxPayTimer.classList.add('expired');
-            
-            // 隐藏二维码
-            if (DOM.wxPayQrCodeContainer) {
-                setTimeout(() => {
-                    DOM.wxPayQrCodeContainer.classList.add('hidden');
-                }, 3000);
-            }
-            
-            PaymentState.paymentStatus = 'failed';
-            hidePayButtonLoading();
-            return;
+    if (PaymentState.wxPayCountdownTimer) {
+        clearInterval(PaymentState.wxPayCountdownTimer);
+    }
+    
+    PaymentState.wxPayCountdownTimer = setInterval(() => {
+        PaymentState.wxPayCountdown--;
+        
+        if (DOM.wxPayTimer) {
+            DOM.wxPayTimer.textContent = formatTime(PaymentState.wxPayCountdown);
         }
         
-        DOM.wxPayTimer.textContent = `剩余 ${formatTime(remaining)}`;
-        remaining--;
-        
-        // 每秒更新
-        setTimeout(updateTimer, 1000);
-    };
-    
-    updateTimer();
+        if (PaymentState.wxPayCountdown <= 0) {
+            clearInterval(PaymentState.wxPayCountdownTimer);
+            PaymentState.wxPayCountdownTimer = null;
+            
+            // 支付超时
+            if (DOM.wxPayStatus) {
+                DOM.wxPayStatus.textContent = '支付超时，请重新发起支付';
+            }
+            
+            // 停止轮询
+            stopWxPayPolling();
+            
+            // 重置支付状态
+            PaymentState.paymentStatus = 'idle';
+            updatePaymentButtonState(false);
+        }
+    }, 1000);
 }
-
-/**
- * 隐藏微信支付二维码
- */
-function hideWxPayQrCode() {
-    if (DOM.wxPayQrCodeContainer) {
-        DOM.wxPayQrCodeContainer.classList.add('hidden');
-    }
-    if (DOM.wxPayTimer) {
-        DOM.wxPayTimer.textContent = '';
-        DOM.wxPayTimer.classList.remove('expired');
-    }
-}
-
-// ============================================================
-// 支付状态轮询模块
-// ============================================================
-
-let paymentPollingInterval = null;
 
 /**
  * 开始轮询支付状态
  * @param {string} orderId - 订单ID
  */
-function startPaymentPolling(orderId) {
-    // 清除之前的轮询
-    stopPaymentPolling();
+function startWxPayPolling(orderId) {
+    // 停止之前的轮询
+    stopWxPayPolling();
     
-    let attempts = 0;
-    const maxAttempts = 60; // 最多轮询60次（5分钟）
+    let pollCount = 0;
+    const maxPolls = 60; // 最多轮询60次（5分钟）
     
-    paymentPollingInterval = setInterval(async () => {
-        attempts++;
+    PaymentState.wxPayPollTimer = setInterval(async () => {
+        pollCount++;
+        
+        if (pollCount > maxPolls) {
+            stopWxPayPolling();
+            return;
+        }
         
         try {
-            const statusData = await queryPaymentStatus(orderId);
+            const data = await apiRequest(`/api/v2/payment/order-status/${orderId}`);
             
-            if (statusData.status === 'success') {
-                // 支付成功
-                stopPaymentPolling();
-                PaymentState.paymentStatus = 'success';
-                hidePayButtonLoading();
-                hideWxPayQrCode();
+            if (data.success) {
+                const status = data.order_status;
                 
-                // 更新余额
-                if (statusData.new_balance !== undefined) {
-                    updateBalanceDisplay(statusData.new_balance);
-                } else {
-                    // 重新加载余额
-                    loadBalance();
+                if (status === 'paid' || status === 'success') {
+                    // 支付成功
+                    clearInterval(PaymentState.wxPayPollTimer);
+                    PaymentState.wxPayPollTimer = null;
+                    
+                    // 停止倒计时
+                    if (PaymentState.wxPayCountdownTimer) {
+                        clearInterval(PaymentState.wxPayCountdownTimer);
+                        PaymentState.wxPayCountdownTimer = null;
+                    }
+                    
+                    // 更新余额
+                    await fetchBalance();
+                    
+                    // 显示支付成功
+                    showPaymentResult(true, '支付成功', '您的套餐已激活，可以开始使用诊断服务');
+                    
+                    // 重置支付状态
+                    PaymentState.paymentStatus = 'idle';
+                    updatePaymentButtonState(false);
+                    
+                    // 隐藏二维码
+                    if (DOM.wxPayQrCodeContainer) {
+                        DOM.wxPayQrCodeContainer.classList.add('hidden');
+                    }
+                } else if (status === 'failed' || status === 'cancelled') {
+                    // 支付失败
+                    clearInterval(PaymentState.wxPayPollTimer);
+                    PaymentState.wxPayPollTimer = null;
+                    
+                    showPaymentResult(false, '支付失败', data.message || '支付未完成，请重新尝试');
+                    
+                    PaymentState.paymentStatus = 'idle';
+                    updatePaymentButtonState(false);
                 }
-                
-                // 显示支付成功弹窗
-                showPaymentResult(true, '支付成功', '您的套餐已激活，可以开始使用诊断服务了');
-                
-                // 触发支付成功回调
-                if (PaymentState.callbackUrl) {
-                    window.location.href = PaymentState.callbackUrl;
-                }
-                
-            } else if (statusData.status === 'failed') {
-                // 支付失败
-                stopPaymentPolling();
-                PaymentState.paymentStatus = 'failed';
-                hidePayButtonLoading();
-                hideWxPayQrCode();
-                
-                showPaymentResult(false, '支付失败', statusData.message || '支付过程中出现错误，请重试');
-                
-            } else if (statusData.status === 'closed') {
-                // 订单已关闭
-                stopPaymentPolling();
-                PaymentState.paymentStatus = 'failed';
-                hidePayButtonLoading();
-                hideWxPayQrCode();
-                
-                showPaymentResult(false, '订单已关闭', '支付二维码已过期，请重新下单');
+                // 其他状态继续轮询
             }
-            
-            // 超过最大轮询次数
-            if (attempts >= maxAttempts) {
-                stopPaymentPolling();
-                PaymentState.paymentStatus = 'failed';
-                hidePayButtonLoading();
-                hideWxPayQrCode();
-                
-                showPaymentResult(false, '支付超时', '支付超时，请重新下单');
-            }
-            
         } catch (error) {
-            console.error('查询支付状态失败:', error);
-            // 继续轮询，不中断
+            console.error('轮询支付状态失败:', error);
         }
     }, 5000); // 每5秒轮询一次
 }
@@ -773,164 +617,128 @@ function startPaymentPolling(orderId) {
 /**
  * 停止轮询支付状态
  */
-function stopPaymentPolling() {
-    if (paymentPollingInterval) {
-        clearInterval(paymentPollingInterval);
-        paymentPollingInterval = null;
+function stopWxPayPolling() {
+    if (PaymentState.wxPayPollTimer) {
+        clearInterval(PaymentState.wxPayPollTimer);
+        PaymentState.wxPayPollTimer = null;
     }
 }
 
 // ============================================================
-// 诊断确认弹窗模块
+// 诊断确认弹窗
 // ============================================================
 
 /**
  * 显示诊断确认弹窗
- * @param {Object} diagnosisInfo - 诊断信息
+ * @param {object} diagnosisInfo - 诊断信息
  */
-function showConfirmDialog(diagnosisInfo) {
+function showDiagnosisConfirmation(diagnosisInfo) {
     if (!DOM.confirmDialog || !DOM.confirmDialogOverlay) return;
     
-    PaymentState.confirmDialogOpen = true;
     PaymentState.currentDiagnosisId = diagnosisInfo.id;
     
     // 更新诊断信息
     if (DOM.confirmDiagnosisInfo) {
         DOM.confirmDiagnosisInfo.innerHTML = `
-            <div class="diagnosis-info-item">
-                <span class="info-label">诊断类型：</span>
-                <span class="info-value">${diagnosisInfo.type || '升学诊断'}</span>
+            <div class="diagnosis-detail">
+                <p><strong>诊断类型：</strong>${diagnosisInfo.type || '综合诊断'}</p>
+                <p><strong>诊断内容：</strong>${diagnosisInfo.description || '学业水平综合评估'}</p>
+                <p><strong>诊断费用：</strong>¥${formatAmount(diagnosisInfo.cost || 0)}</p>
             </div>
-            <div class="diagnosis-info-item">
-                <span class="info-label">诊断费用：</span>
-                <span class="info-value">¥${formatAmount(diagnosisInfo.price || 0)}</span>
-            </div>
-            ${diagnosisInfo.description ? `
-                <div class="diagnosis-info-item">
-                    <span class="info-label">诊断说明：</span>
-                    <span class="info-value">${diagnosisInfo.description}</span>
-                </div>
-            ` : ''}
         `;
     }
     
     // 更新套餐信息
     if (DOM.confirmPackageInfo) {
-        const pkg = PaymentState.selectedPackage;
-        if (pkg) {
+        const currentPackage = PaymentState.selectedPackage;
+        if (currentPackage) {
             DOM.confirmPackageInfo.innerHTML = `
-                <div class="package-info-item">
-                    <span class="info-label">当前套餐：</span>
-                    <span class="info-value">${pkg.name}</span>
-                </div>
-                <div class="package-info-item">
-                    <span class="info-label">剩余次数：</span>
-                    <span class="info-value">${pkg.remaining_count || 0} 次</span>
+                <div class="package-detail">
+                    <p><strong>当前套餐：</strong>${currentPackage.name}</p>
+                    <p><strong>剩余次数：</strong>${currentPackage.remaining_diagnoses || 0} 次</p>
                 </div>
             `;
         } else {
-            DOM.confirmPackageInfo.innerHTML = '<div class="no-package">未选择套餐，将按单次诊断计费</div>';
+            DOM.confirmPackageInfo.innerHTML = '<p>按次计费：¥' + formatAmount(diagnosisInfo.cost || 0) + '</p>';
         }
     }
     
     // 更新余额信息
     if (DOM.confirmBalanceInfo) {
         DOM.confirmBalanceInfo.innerHTML = `
-            <div class="balance-info-item">
-                <span class="info-label">账户余额：</span>
-                <span class="info-value">¥${formatAmount(PaymentState.balance)}</span>
-            </div>
-            <div class="balance-info-item">
-                <span class="info-label">诊断后余额：</span>
-                <span class="info-value">¥${formatAmount(PaymentState.balance - (diagnosisInfo.price || 0))}</span>
+            <div class="balance-detail">
+                <p><strong>当前余额：</strong>¥${formatAmount(PaymentState.balance)}</p>
+                <p><strong>诊断后余额：</strong>¥${formatAmount(PaymentState.balance - (diagnosisInfo.cost || 0))}</p>
             </div>
         `;
     }
     
     // 显示弹窗
-    DOM.confirmDialog.classList.remove('hidden');
-    DOM.confirmDialogOverlay.classList.remove('hidden');
+    showDialog(DOM.confirmDialog, DOM.confirmDialogOverlay);
+    PaymentState.confirmDialogOpen = true;
+}
+
+/**
+ * 确认诊断
+ */
+async function confirmDiagnosis() {
+    if (!PaymentState.currentDiagnosisId) {
+        showError('诊断信息缺失');
+        return;
+    }
     
-    // 添加动画
-    setTimeout(() => {
-        DOM.confirmDialog.classList.add('show');
-        DOM.confirmDialogOverlay.classList.add('show');
-    }, 10);
+    try {
+        // 禁用确认按钮
+        if (DOM.confirmButton) {
+            DOM.confirmButton.disabled = true;
+            DOM.confirmButton.textContent = '处理中...';
+        }
+        
+        const data = await apiRequest('/api/v2/diagnosis/confirm', 'POST', {
+            diagnosis_id: PaymentState.currentDiagnosisId,
+            package_id: PaymentState.selectedPackage ? PaymentState.selectedPackage.id : null
+        });
+        
+        if (data.success) {
+            // 关闭确认弹窗
+            hideDiagnosisConfirmation();
+            
+            // 更新余额
+            await fetchBalance();
+            
+            // 显示成功信息
+            showPaymentResult(true, '诊断已确认', '诊断服务已开始，请等待结果');
+            
+            // 触发诊断开始事件
+            if (typeof window.onDiagnosisStarted === 'function') {
+                window.onDiagnosisStarted(data.diagnosis);
+            }
+        } else {
+            showError(data.message || '确认诊断失败');
+        }
+    } catch (error) {
+        showError('确认诊断失败: ' + error.message);
+    } finally {
+        if (DOM.confirmButton) {
+            DOM.confirmButton.disabled = false;
+            DOM.confirmButton.textContent = '确认诊断';
+        }
+    }
 }
 
 /**
  * 隐藏诊断确认弹窗
  */
-function hideConfirmDialog() {
-    if (!DOM.confirmDialog || !DOM.confirmDialogOverlay) return;
-    
+function hideDiagnosisConfirmation() {
+    if (DOM.confirmDialog && DOM.confirmDialogOverlay) {
+        hideDialog(DOM.confirmDialog, DOM.confirmDialogOverlay);
+    }
     PaymentState.confirmDialogOpen = false;
     PaymentState.currentDiagnosisId = null;
-    
-    DOM.confirmDialog.classList.remove('show');
-    DOM.confirmDialogOverlay.classList.remove('show');
-    
-    setTimeout(() => {
-        DOM.confirmDialog.classList.add('hidden');
-        DOM.confirmDialogOverlay.classList.add('hidden');
-    }, 300);
-}
-
-/**
- * 处理确认按钮点击
- */
-async function handleConfirmButtonClick() {
-    const diagnosisId = PaymentState.currentDiagnosisId;
-    if (!diagnosisId) {
-        showError('诊断信息缺失');
-        return;
-    }
-    
-    // 检查余额是否足够
-    const pkg = PaymentState.selectedPackage;
-    const diagnosisPrice = 0; // 从诊断信息获取实际价格
-    
-    if (PaymentState.balance < diagnosisPrice) {
-        showError('余额不足，请先充值');
-        hideConfirmDialog();
-        return;
-    }
-    
-    showPayButtonLoading();
-    
-    try {
-        // 使用余额支付
-        const result = await payWithBalance(diagnosisId);
-        
-        hideConfirmDialog();
-        hidePayButtonLoading();
-        
-        // 更新余额
-        if (result.new_balance !== undefined) {
-            updateBalanceDisplay(result.new_balance);
-        } else {
-            loadBalance();
-        }
-        
-        // 显示支付成功
-        showPaymentResult(true, '诊断确认成功', '诊断已开始，请等待结果');
-        
-        // 跳转到诊断结果页面
-        if (result.redirect_url) {
-            setTimeout(() => {
-                window.location.href = result.redirect_url;
-            }, 1500);
-        }
-        
-    } catch (error) {
-        console.error('诊断确认失败:', error);
-        hidePayButtonLoading();
-        showError('诊断确认失败: ' + error.message);
-    }
 }
 
 // ============================================================
-// 支付结果弹窗模块
+// 支付结果弹窗
 // ============================================================
 
 /**
@@ -942,46 +750,34 @@ async function handleConfirmButtonClick() {
 function showPaymentResult(success, title, message) {
     if (!DOM.paymentResultDialog || !DOM.paymentResultOverlay) return;
     
-    // 更新图标
+    // 设置图标
     if (DOM.paymentResultIcon) {
-        DOM.paymentResultIcon.className = `payment-result-icon ${success ? 'success' : 'failed'}`;
+        DOM.paymentResultIcon.className = success ? 'icon-success' : 'icon-failed';
         DOM.paymentResultIcon.textContent = success ? '✓' : '✗';
     }
     
-    // 更新标题
+    // 设置标题
     if (DOM.paymentResultTitle) {
         DOM.paymentResultTitle.textContent = title;
+        DOM.paymentResultTitle.className = success ? 'text-success' : 'text-failed';
     }
     
-    // 更新消息
+    // 设置消息
     if (DOM.paymentResultMessage) {
         DOM.paymentResultMessage.textContent = message;
     }
     
     // 显示弹窗
-    DOM.paymentResultDialog.classList.remove('hidden');
-    DOM.paymentResultOverlay.classList.remove('hidden');
-    
-    // 添加动画
-    setTimeout(() => {
-        DOM.paymentResultDialog.classList.add('show');
-        DOM.paymentResultOverlay.classList.add('show');
-    }, 10);
+    showDialog(DOM.paymentResultDialog, DOM.paymentResultOverlay);
 }
 
 /**
  * 隐藏支付结果弹窗
  */
 function hidePaymentResult() {
-    if (!DOM.paymentResultDialog || !DOM.paymentResultOverlay) return;
-    
-    DOM.paymentResultDialog.classList.remove('show');
-    DOM.paymentResultOverlay.classList.remove('show');
-    
-    setTimeout(() => {
-        DOM.paymentResultDialog.classList.add('hidden');
-        DOM.paymentResultOverlay.classList.add('hidden');
-    }, 300);
+    if (DOM.paymentResultDialog && DOM.paymentResultOverlay) {
+        hideDialog(DOM.paymentResultDialog, DOM.paymentResultOverlay);
+    }
 }
 
 // ============================================================
@@ -992,30 +788,32 @@ function hidePaymentResult() {
  * 绑定事件
  */
 function bindEvents() {
-    // 支付按钮
+    // 支付按钮点击事件
     if (DOM.payButton) {
-        DOM.payButton.addEventListener('click', handlePayButtonClick);
+        DOM.payButton.addEventListener('click', initiatePayment);
     }
     
-    // 确认弹窗按钮
+    // 确认诊断按钮点击事件
     if (DOM.confirmButton) {
-        DOM.confirmButton.addEventListener('click', handleConfirmButtonClick);
+        DOM.confirmButton.addEventListener('click', confirmDiagnosis);
     }
     
+    // 取消诊断按钮点击事件
     if (DOM.cancelButton) {
-        DOM.cancelButton.addEventListener('click', hideConfirmDialog);
+        DOM.cancelButton.addEventListener('click', hideDiagnosisConfirmation);
     }
     
-    // 点击遮罩关闭弹窗
+    // 关闭诊断确认弹窗（点击遮罩层）
     if (DOM.confirmDialogOverlay) {
-        DOM.confirmDialogOverlay.addEventListener('click', hideConfirmDialog);
+        DOM.confirmDialogOverlay.addEventListener('click', hideDiagnosisConfirmation);
     }
     
-    // 支付结果弹窗按钮
+    // 支付结果弹窗关闭按钮
     if (DOM.paymentResultButton) {
         DOM.paymentResultButton.addEventListener('click', hidePaymentResult);
     }
     
+    // 关闭支付结果弹窗（点击遮罩层）
     if (DOM.paymentResultOverlay) {
         DOM.paymentResultOverlay.addEventListener('click', hidePaymentResult);
     }
@@ -1025,9 +823,15 @@ function bindEvents() {
         DOM.errorToastClose.addEventListener('click', hideError);
     }
     
-    // 页面卸载时停止轮询
-    window.addEventListener('beforeunload', () => {
-        stopPaymentPolling();
+    // 键盘事件
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+            if (PaymentState.confirmDialogOpen) {
+                hideDiagnosisConfirmation();
+            }
+            hidePaymentResult();
+            hideError();
+        }
     });
 }
 
@@ -1038,60 +842,59 @@ function bindEvents() {
 /**
  * 初始化支付模块
  */
-async function initPayment() {
-    console.log('初始化支付模块 v2.0');
-    
-    // 绑定事件
-    bindEvents();
-    
-    // 加载用户信息
+async function initPaymentModule() {
     try {
-        const userResponse = await fetch('/api/v2/auth/user', {
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Requested-With': 'XMLHttpRequest'
-            },
-            credentials: 'same-origin'
-        });
+        // 绑定事件
+        bindEvents();
         
-        if (userResponse.ok) {
-            const userData = await userResponse.json();
-            if (userData.code === 0) {
-                PaymentState.user = userData.data;
-            }
-        }
+        // 获取余额
+        await fetchBalance();
+        
+        // 获取套餐列表
+        await fetchPackages();
+        
+        // 更新支付按钮状态
+        updatePayButton();
+        
+        console.log('支付模块初始化完成');
     } catch (error) {
-        console.error('获取用户信息失败:', error);
+        console.error('支付模块初始化失败:', error);
+        showError('支付模块初始化失败，请刷新页面重试');
     }
-    
-    // 并行加载余额和套餐
-    await Promise.all([
-        loadBalance(),
-        loadPackages()
-    ]);
-    
-    console.log('支付模块初始化完成');
 }
 
 // 页面加载完成后初始化
-document.addEventListener('DOMContentLoaded', initPayment);
+document.addEventListener('DOMContentLoaded', () => {
+    initPaymentModule();
+});
 
 // 导出模块（用于其他JS文件调用）
-window.PaymentV2 = {
+window.PaymentModule = {
     // 状态
     state: PaymentState,
     
-    // 方法
-    showConfirmDialog,
-    hideConfirmDialog,
-    showPaymentResult,
-    hidePaymentResult,
-    loadBalance,
-    loadPackages,
-    selectPackage,
+    // 余额相关
+    fetchBalance: fetchBalance,
+    updateBalanceDisplay: updateBalanceDisplay,
     
-    // 事件
-    onPaymentSuccess: null,
-    onPaymentFailed: null
+    // 套餐相关
+    fetchPackages: fetchPackages,
+    selectPackage: selectPackage,
+    
+    // 支付相关
+    initiatePayment: initiatePayment,
+    
+    // 诊断确认
+    showDiagnosisConfirmation: showDiagnosisConfirmation,
+    confirmDiagnosis: confirmDiagnosis,
+    hideDiagnosisConfirmation: hideDiagnosisConfirmation,
+    
+    // 支付结果
+    showPaymentResult: showPaymentResult,
+    hidePaymentResult: hidePaymentResult,
+    
+    // 工具
+    formatAmount: formatAmount,
+    showError: showError,
+    hideError: hideError
 };
