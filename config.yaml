@@ -164,6 +164,142 @@ pipeline:
       
     # 标题约束
     title:
-      min_length: 12
-      max_length: 18
-      required_elements: ["数字", "成都", "升学"]
+      # 标题长度范围
+      min_length: 10
+      max_length: 64
+      # 标题风格
+      style: ["热点型", "干货型", "政策解读型", "数据型"]
+      # 禁止使用的词汇
+      forbidden_words: ["最", "第一", "绝对", "100%", "保证", "包过"]
+      # 推荐使用的关键词
+      recommended_keywords: ["成都", "升学", "小升初", "中考", "政策", "划片", "摇号"]
+      
+    # 内容约束
+    content:
+      # 必须包含的模块
+      required_modules: ["政策依据", "数据支撑", "操作建议", "风险提示"]
+      # 引用来源要求
+      citation_required: true
+      # 免责声明
+      disclaimer: "本文仅供参考，具体政策以教育部门官方发布为准。"
+      
+  # 审核配置
+  review:
+    # 审核标准
+    standards:
+      - "政策准确性"
+      - "数据真实性"
+      - "表述客观性"
+      - "合规性检查"
+    # 审核人
+    reviewers: ["admin", "editor"]
+    # 自动审核规则
+    auto_review:
+      enabled: true
+      min_score: 7.0
+      check_policy: true
+      check_data: true
+      
+  # 发布配置
+  publish:
+    # 发布渠道
+    channels: ["公众号", "小红书"]
+    # 发布时间
+    schedule:
+      enabled: true
+      time: "08:00"
+      timezone: "Asia/Shanghai"
+    # 发布前检查
+    pre_publish_check:
+      - "封面图检查"
+      - "标题检查"
+      - "内容完整性检查"
+      - "合规性检查"
+
+# 用户配额配置（新增）
+quota:
+  # 免费用户每日诊断次数
+  free_daily: 3
+  # 付费用户每次诊断价格（分）
+  pay_per_diagnosis: 100
+  # 套餐配置
+  packages:
+    - name: "单次诊断"
+      price: 100  # 分
+      diagnoses: 1
+      valid_days: 30
+    - name: "5次诊断包"
+      price: 400  # 分，8折
+      diagnoses: 5
+      valid_days: 90
+    - name: "10次诊断包"
+      price: 700  # 分，7折
+      diagnoses: 10
+      valid_days: 180
+    - name: "月度无限诊断"
+      price: 2000  # 分
+      diagnoses: -1  # -1表示无限次
+      valid_days: 30
+      
+  # 诊断类型
+  diagnosis_types:
+    - name: "升学路径诊断"
+      code: "path"
+      price: 100  # 分
+      description: "基于学生成绩、特长、家庭情况，推荐最优升学路径"
+    - name: "学校匹配诊断"
+      code: "school_match"
+      price: 100  # 分
+      description: "根据学生画像，匹配最适合的学校"
+    - name: "政策解读诊断"
+      code: "policy"
+      price: 50  # 分
+      description: "针对具体升学政策进行个性化解读"
+    - name: "综合诊断报告"
+      code: "comprehensive"
+      price: 200  # 分
+      description: "全面的升学诊断报告，包含路径、学校、政策分析"
+
+# 数据库配置
+database:
+  # SQLite数据库路径
+  url: "sqlite:///${OPC_ROOT}/data/k12_rocket.db"
+  # 连接池配置
+  pool_size: 5
+  max_overflow: 10
+  # 超时配置
+  pool_timeout: 30
+  pool_recycle: 3600
+
+# 缓存配置
+cache:
+  # 使用内存缓存
+  type: "memory"
+  # 默认过期时间（秒）
+  default_ttl: 300
+  # 最大缓存条目数
+  max_items: 1000
+
+# 安全配置
+security:
+  # JWT密钥
+  jwt_secret: "${JWT_SECRET}"
+  # JWT过期时间（小时）
+  jwt_expire_hours: 24
+  # 密码哈希算法
+  password_hash: "bcrypt"
+  # CORS配置
+  cors:
+    allowed_origins:
+      - "http://localhost:8000"
+      - "https://k12.diandengwa.com"
+    allowed_methods:
+      - "GET"
+      - "POST"
+      - "PUT"
+      - "DELETE"
+      - "OPTIONS"
+    allowed_headers:
+      - "Content-Type"
+      - "Authorization"
+      - "X-Request-ID"

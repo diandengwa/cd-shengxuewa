@@ -141,9 +141,55 @@ class WeChatPayV3Service:
         return {
             "signature": base64.b64encode(signature).decode("utf-8"),
             "nonce": nonce,
-            "timestamp": timestamp,
-            "serial_no": self._get_cert_serial_no()
+            "timestamp": timestamp
         }
+
+    async def _make_request(self, method: str, path: str, body: Optional[Dict] = None) -> Dict:
+        """发送HTTP请求到微信支付API
+        
+        Args:
+            method: HTTP方法
+            path: API路径
+            body: 请求体
+            
+        Returns:
+            响应数据
+        """
+        url = f"{WECHAT_API_BASE}{path}"
+        body_str = json.dumps(body, ensure_ascii=False) if body else ""
+        
+        # 构建签名
+        sign_info = self._build_signature(method, path, body_str)
+        
+        # 构建请求头
+        headers = {
+            "Authorization": f'WECHATPAY2-SHA256-RSA2048 mchid="{self.mch_id}",'
+                           f'nonce_str="{sign_info["nonce"]}",'
+                           f'timestamp="{sign_info["timestamp"]}",'
+                           f'serial_no="{self._get_cert_serial_no()}",'
+                           f'signature="{sign_info["signature"]}"',
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": "K12-Shengxuewa/2.0"
+        }
+        
+        try:
+            if method == "GET":
+                response = await self.client.get(url, headers=headers)
+            elif method == "POST":
+                response = await self.client.post(url, headers=headers, content=body_str)
+            else:
+                raise ValueError(f"不支持的HTTP方法: {method}")
+            
+            response.raise_for_status()
+            return response.json()
+            
+        except httpx.HTTPStatusError as e:
+            logger.error(f"微信支付API请求失败: {e.response.text}")
+            raise HTTPException(status_code=500, detail="支付服务异常")
+        except Exception as e:
+            logger.error(f"微信支付API请求异常: {e}")
+            raise HTTPException(status_code=500, detail="支付服务异常")
 
     def _get_cert_serial_no(self) -> str:
         """获取证书序列号"""
@@ -152,80 +198,34 @@ class WeChatPayV3Service:
         
         from cryptography.x509 import load_pem_x509_certificate
         cert = load_pem_x509_certificate(self.certificate, default_backend())
-        return cert.serial_number
+        return format(cert.serial_number, 'x')
 
-    async def _make_request(self, method: str, url: str, body: Optional[Dict] = None) -> Dict:
-        """发送HTTP请求到微信支付API
-        
-        Args:
-            method: HTTP方法
-            url: 请求URL
-            body: 请求体
-            
-        Returns:
-            响应数据
-        """
-        body_str = json.dumps(body, ensure_ascii=False) if body else ""
-        sign_info = self._build_signature(method, url, body_str)
-        
-        headers = {
-            "Authorization": f'WECHATPAY2-SHA256-RSA2048 mchid="{self.mch_id}",nonce_str="{sign_info["nonce"]}",timestamp="{sign_info["timestamp"]}",serial_no="{sign_info["serial_no"]}",signature="{sign_info["signature"]}"',
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "User-Agent": "K12-Shengxuewa/2.0"
-        }
-        
-        try:
-            response = await self.client.request(
-                method=method,
-                url=url,
-                headers=headers,
-                content=body_str.encode("utf-8") if body_str else None
-            )
-            
-            if response.status_code == 204:
-                return {}
-            
-            response_data = response.json()
-            
-            if response.status_code >= 400:
-                logger.error(f"微信支付API请求失败: {response.status_code} {response_data}")
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"微信支付API请求失败: {response_data.get('message', '未知错误')}"
-                )
-            
-            return response_data
-            
-        except httpx.TimeoutException:
-            logger.error("微信支付API请求超时")
-            raise HTTPException(status_code=500, detail="微信支付API请求超时")
-        except httpx.RequestError as e:
-            logger.error(f"微信支付API请求异常: {e}")
-            raise HTTPException(status_code=500, detail=f"微信支付API请求异常: {str(e)}")
-
-    async def create_jsapi_order(self, openid: str, out_trade_no: str, total_fee: int, description: str) -> Dict:
+    async def create_jsapi_order(self, openid: str, amount: Decimal, description: str) -> Dict:
         """创建JSAPI支付订单
         
         Args:
             openid: 用户微信openid
-            out_trade_no: 商户订单号
-            total_fee: 订单金额（分）
-            description: 商品描述
+            amount: 订单金额（元）
+            description: 订单描述
             
         Returns:
-            支付参数
+            包含prepay_id的订单信息
         """
-        url = f"{WECHAT_PAY_API_BASE}/transactions/jsapi"
+        # 生成订单号
+        order_id = self._generate_order_id()
         
-        body = {
+        # 转换金额为分
+        amount_fen = int(amount * 100)
+        
+        # 构建请求参数
+        params = {
             "appid": self.app_id,
             "mchid": self.mch_id,
             "description": description,
-            "out_trade_no": out_trade_no,
+            "out_trade_no": order_id,
             "notify_url": self.notify_url,
             "amount": {
-                "total": total_fee,
+                "total": amount_fen,
                 "currency": "CNY"
             },
             "payer": {
@@ -233,31 +233,79 @@ class WeChatPayV3Service:
             }
         }
         
-        result = await self._make_request("POST", url, body)
+        # 调用微信支付统一下单接口
+        result = await self._make_request("POST", "/pay/transactions/jsapi", params)
         
-        # 生成JSAPI调起支付参数
-        prepay_id = result.get("prepay_id")
-        if not prepay_id:
-            raise HTTPException(status_code=500, detail="获取prepay_id失败")
+        # 保存订单信息到数据库
+        await self._save_order(order_id, openid, amount, description, result["prepay_id"])
         
-        pay_params = self._generate_jsapi_pay_params(prepay_id)
-        return pay_params
+        # 构建前端调起支付所需的参数
+        pay_params = self._build_jsapi_pay_params(result["prepay_id"])
+        
+        return {
+            "order_id": order_id,
+            "prepay_id": result["prepay_id"],
+            "pay_params": pay_params
+        }
 
-    def _generate_jsapi_pay_params(self, prepay_id: str) -> Dict:
-        """生成JSAPI调起支付参数
+    def _generate_order_id(self) -> str:
+        """生成唯一订单号"""
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        random_str = secrets.token_hex(4)
+        return f"K12{timestamp}{random_str}"
+
+    async def _save_order(self, order_id: str, openid: str, amount: Decimal, 
+                         description: str, prepay_id: str):
+        """保存订单到数据库
         
         Args:
-            prepay_id: 预支付ID
+            order_id: 订单号
+            openid: 用户openid
+            amount: 订单金额
+            description: 订单描述
+            prepay_id: 微信预支付ID
+        """
+        conn = get_db_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO payment_orders 
+                (order_id, openid, amount, description, prepay_id, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                order_id,
+                openid,
+                str(amount),
+                description,
+                prepay_id,
+                PAY_STATUS_PENDING,
+                datetime.now().isoformat()
+            ))
+            conn.commit()
+            logger.info(f"订单保存成功: {order_id}")
+        except Exception as e:
+            logger.error(f"保存订单失败: {e}")
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def _build_jsapi_pay_params(self, prepay_id: str) -> Dict:
+        """构建JSAPI调起支付参数
+        
+        Args:
+            prepay_id: 微信预支付ID
             
         Returns:
-            JSAPI支付参数
+            前端调起支付所需的参数
         """
+        app_id = self.app_id
+        time_stamp = self._generate_timestamp()
         nonce_str = self._generate_nonce_str()
-        timestamp = self._generate_timestamp()
         package = f"prepay_id={prepay_id}"
         
         # 构建签名串
-        sign_str = f"{self.app_id}\n{timestamp}\n{nonce_str}\n{package}\n"
+        sign_str = f"{app_id}\n{time_stamp}\n{nonce_str}\n{package}\n"
         
         # 使用私钥签名
         signature = self.private_key.sign(
@@ -267,267 +315,16 @@ class WeChatPayV3Service:
         )
         
         return {
-            "appId": self.app_id,
-            "timeStamp": timestamp,
+            "appId": app_id,
+            "timeStamp": time_stamp,
             "nonceStr": nonce_str,
             "package": package,
             "signType": "RSA",
             "paySign": base64.b64encode(signature).decode("utf-8")
         }
 
-    async def query_order(self, out_trade_no: str) -> Dict:
-        """查询订单状态
-        
-        Args:
-            out_trade_no: 商户订单号
-            
-        Returns:
-            订单信息
-        """
-        url = f"{WECHAT_PAY_API_BASE}/transactions/out-trade-no/{out_trade_no}?mchid={self.mch_id}"
-        return await self._make_request("GET", url)
-
-    async def close_order(self, out_trade_no: str) -> None:
-        """关闭订单
-        
-        Args:
-            out_trade_no: 商户订单号
-        """
-        url = f"{WECHAT_PAY_API_BASE}/transactions/out-trade-no/{out_trade_no}/close"
-        body = {
-            "mchid": self.mch_id
-        }
-        await self._make_request("POST", url, body)
-
-    async def refund_order(self, out_trade_no: str, refund_amount: int, total_amount: int, reason: str = "") -> Dict:
-        """申请退款
-        
-        Args:
-            out_trade_no: 商户订单号
-            refund_amount: 退款金额（分）
-            total_amount: 原订单金额（分）
-            reason: 退款原因
-            
-        Returns:
-            退款信息
-        """
-        url = f"{WECHAT_REFUND_API_BASE}/domestic/refunds"
-        
-        body = {
-            "out_trade_no": out_trade_no,
-            "out_refund_no": f"REFUND_{out_trade_no}_{int(time.time())}",
-            "reason": reason,
-            "notify_url": self.refund_notify_url,
-            "amount": {
-                "refund": refund_amount,
-                "total": total_amount,
-                "currency": "CNY"
-            }
-        }
-        
-        return await self._make_request("POST", url, body)
-
-    async def verify_payment_notification(self, request: Request) -> Dict:
-        """验证支付回调通知
-        
-        Args:
-            request: FastAPI请求对象
-            
-        Returns:
-            解密后的回调数据
-        """
-        # 获取请求头
-        wechatpay_signature = request.headers.get("Wechatpay-Signature")
-        wechatpay_timestamp = request.headers.get("Wechatpay-Timestamp")
-        wechatpay_nonce = request.headers.get("Wechatpay-Nonce")
-        wechatpay_serial = request.headers.get("Wechatpay-Serial")
-        
-        if not all([wechatpay_signature, wechatpay_timestamp, wechatpay_nonce, wechatpay_serial]):
-            raise HTTPException(status_code=400, detail="缺少必要的回调验证头")
-        
-        # 读取请求体
-        body = await request.body()
-        body_str = body.decode("utf-8")
-        
-        # 构建验签名串
-        sign_str = f"{wechatpay_timestamp}\n{wechatpay_nonce}\n{body_str}\n"
-        
-        # 获取平台证书
-        platform_cert = await self._get_platform_certificate(wechatpay_serial)
-        if not platform_cert:
-            raise HTTPException(status_code=400, detail="无法获取平台证书")
-        
-        # 验证签名
-        try:
-            platform_cert.public_key().verify(
-                base64.b64decode(wechatpay_signature),
-                sign_str.encode("utf-8"),
-                padding.PKCS1v15(),
-                hashes.SHA256()
-            )
-        except Exception as e:
-            logger.error(f"回调签名验证失败: {e}")
-            raise HTTPException(status_code=400, detail="回调签名验证失败")
-        
-        # 解密数据
-        return self._decrypt_notification_data(body_str)
-
-    async def _get_platform_certificate(self, serial_no: str):
-        """获取微信支付平台证书
-        
-        Args:
-            serial_no: 证书序列号
-            
-        Returns:
-            平台证书对象
-        """
-        # 先从缓存获取
-        cert = self._get_cached_certificate(serial_no)
-        if cert:
-            return cert
-        
-        # 从微信支付API获取
-        url = f"{WECHAT_API_BASE}/certificates"
-        result = await self._make_request("GET", url)
-        
-        for cert_info in result.get("data", []):
-            if cert_info.get("serial_no") == serial_no:
-                # 解密证书内容
-                encrypted_cert = cert_info.get("encrypt_certificate")
-                if encrypted_cert:
-                    cert_pem = self._decrypt_certificate(encrypted_cert)
-                    from cryptography.x509 import load_pem_x509_certificate
-                    cert = load_pem_x509_certificate(cert_pem.encode("utf-8"), default_backend())
-                    self._cache_certificate(serial_no, cert)
-                    return cert
-        
-        return None
-
-    def _get_cached_certificate(self, serial_no: str):
-        """从缓存获取平台证书"""
-        # TODO: 实现证书缓存逻辑
-        return None
-
-    def _cache_certificate(self, serial_no: str, cert):
-        """缓存平台证书"""
-        # TODO: 实现证书缓存逻辑
-        pass
-
-    def _decrypt_certificate(self, encrypted_cert: Dict) -> str:
-        """解密平台证书
-        
-        Args:
-            encrypted_cert: 加密的证书信息
-            
-        Returns:
-            解密后的证书PEM内容
-        """
-        algorithm = encrypted_cert.get("algorithm")
-        nonce = encrypted_cert.get("nonce")
-        associated_data = encrypted_cert.get("associated_data")
-        ciphertext = encrypted_cert.get("ciphertext")
-        
-        if algorithm != "AEAD_AES_256_GCM":
-            raise ValueError(f"不支持的加密算法: {algorithm}")
-        
-        # 使用APIv3密钥解密
-        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-        key = self.api_v3_key.encode("utf-8")
-        aesgcm = AESGCM(key)
-        
-        # 组合nonce和密文
-        ciphertext_bytes = base64.b64decode(ciphertext)
-        nonce_bytes = nonce.encode("utf-8")
-        associated_data_bytes = associated_data.encode("utf-8") if associated_data else None
-        
-        plaintext = aesgcm.decrypt(nonce_bytes, ciphertext_bytes, associated_data_bytes)
-        return plaintext.decode("utf-8")
-
-    def _decrypt_notification_data(self, body_str: str) -> Dict:
-        """解密回调通知数据
-        
-        Args:
-            body_str: 回调请求体字符串
-            
-        Returns:
-            解密后的数据
-        """
-        body = json.loads(body_str)
-        resource = body.get("resource")
-        if not resource:
-            raise ValueError("回调数据中缺少resource字段")
-        
-        algorithm = resource.get("algorithm")
-        ciphertext = resource.get("ciphertext")
-        nonce = resource.get("nonce")
-        associated_data = resource.get("associated_data")
-        
-        if algorithm != "AEAD_AES_256_GCM":
-            raise ValueError(f"不支持的加密算法: {algorithm}")
-        
-        # 使用APIv3密钥解密
-        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-        key = self.api_v3_key.encode("utf-8")
-        aesgcm = AESGCM(key)
-        
-        ciphertext_bytes = base64.b64decode(ciphertext)
-        nonce_bytes = nonce.encode("utf-8")
-        associated_data_bytes = associated_data.encode("utf-8") if associated_data else None
-        
-        plaintext = aesgcm.decrypt(nonce_bytes, ciphertext_bytes, associated_data_bytes)
-        return json.loads(plaintext.decode("utf-8"))
-
-    async def close(self):
-        """关闭HTTP客户端"""
-        await self.client.aclose()
-
-
-class PaymentService:
-    """支付服务类：处理credits管理、支付记录、业务逻辑"""
-
-    def __init__(self):
-        self.wechat_pay = WeChatPayV3Service()
-
-    async def create_diagnosis_payment(self, user_id: int, openid: str) -> Dict:
-        """创建诊断支付订单
-        
-        Args:
-            user_id: 用户ID
-            openid: 用户微信openid
-            
-        Returns:
-            支付参数
-        """
-        # 生成商户订单号
-        out_trade_no = self._generate_order_no(user_id)
-        
-        # 计算金额（元转分）
-        total_fee = int(DIAGNOSIS_PRICE * 100)
-        
-        # 创建支付订单记录
-        order = await self._create_payment_order(
-            user_id=user_id,
-            out_trade_no=out_trade_no,
-            total_fee=total_fee,
-            description="K12升学诊断服务"
-        )
-        
-        # 调用微信支付创建订单
-        pay_params = await self.wechat_pay.create_jsapi_order(
-            openid=openid,
-            out_trade_no=out_trade_no,
-            total_fee=total_fee,
-            description="K12升学诊断服务"
-        )
-        
-        return {
-            "order_id": order.id,
-            "out_trade_no": out_trade_no,
-            "pay_params": pay_params
-        }
-
-    async def handle_payment_notification(self, request: Request) -> Dict:
-        """处理支付回调通知
+    async def handle_payment_notify(self, request: Request) -> Dict:
+        """处理微信支付回调通知
         
         Args:
             request: FastAPI请求对象
@@ -535,292 +332,505 @@ class PaymentService:
         Returns:
             处理结果
         """
-        try:
-            # 验证并解密回调数据
-            notification_data = await self.wechat_pay.verify_payment_notification(request)
+        # 获取请求体
+        body = await request.body()
+        body_str = body.decode("utf-8")
+        
+        # 验证签名
+        if not self._verify_notify_signature(request.headers, body_str):
+            logger.error("支付回调签名验证失败")
+            raise HTTPException(status_code=401, detail="签名验证失败")
+        
+        # 解析回调数据
+        notify_data = json.loads(body_str)
+        resource = notify_data.get("resource", {})
+        
+        # 解密资源数据
+        decrypted_data = self._decrypt_resource(resource)
+        
+        # 处理订单状态更新
+        order_id = decrypted_data.get("out_trade_no")
+        transaction_id = decrypted_data.get("transaction_id")
+        trade_state = decrypted_data.get("trade_state")
+        
+        if trade_state == "SUCCESS":
+            # 更新订单状态
+            await self._update_order_status(order_id, PAY_STATUS_SUCCESS, transaction_id)
             
-            # 获取订单信息
-            out_trade_no = notification_data.get("out_trade_no")
-            transaction_id = notification_data.get("transaction_id")
-            trade_state = notification_data.get("trade_state")
+            # 增加用户credits
+            await self._add_credits_for_order(order_id)
             
-            if not out_trade_no or not transaction_id:
-                logger.error("回调数据缺少必要字段")
-                return {"code": "FAIL", "message": "参数错误"}
-            
-            # 查询订单
-            order = await self._get_order_by_out_trade_no(out_trade_no)
-            if not order:
-                logger.error(f"订单不存在: {out_trade_no}")
-                return {"code": "FAIL", "message": "订单不存在"}
-            
-            # 检查订单状态
-            if order.status == PAY_STATUS_SUCCESS:
-                logger.warning(f"订单已处理: {out_trade_no}")
-                return {"code": "SUCCESS", "message": "已处理"}
-            
-            # 处理支付成功
-            if trade_state == "SUCCESS":
-                await self._process_successful_payment(order, transaction_id)
-            elif trade_state in ["CLOSED", "REVOKED"]:
-                await self._process_failed_payment(order, trade_state)
-            
-            return {"code": "SUCCESS", "message": "处理成功"}
-            
-        except Exception as e:
-            logger.error(f"处理支付回调失败: {e}")
-            return {"code": "FAIL", "message": str(e)}
+            logger.info(f"订单支付成功: {order_id}, 交易号: {transaction_id}")
+        else:
+            logger.warning(f"订单支付失败: {order_id}, 状态: {trade_state}")
+            await self._update_order_status(order_id, PAY_STATUS_FAILED, transaction_id)
+        
+        return {
+            "code": "SUCCESS",
+            "message": "成功"
+        }
 
-    async def _process_successful_payment(self, order: PaymentOrder, transaction_id: str):
-        """处理支付成功
+    def _verify_notify_signature(self, headers: Dict, body: str) -> bool:
+        """验证回调签名
         
         Args:
-            order: 支付订单
+            headers: 请求头
+            body: 请求体
+            
+        Returns:
+            签名是否有效
+        """
+        try:
+            # 获取签名相关头信息
+            wechatpay_signature = headers.get("wechatpay-signature")
+            wechatpay_timestamp = headers.get("wechatpay-timestamp")
+            wechatpay_nonce = headers.get("wechatpay-nonce")
+            wechatpay_serial = headers.get("wechatpay-serial")
+            
+            if not all([wechatpay_signature, wechatpay_timestamp, wechatpay_nonce, wechatpay_serial]):
+                logger.error("缺少必要的签名头信息")
+                return False
+            
+            # 构建验签串
+            sign_str = f"{wechatpay_timestamp}\n{wechatpay_nonce}\n{body}\n"
+            
+            # 获取平台证书
+            platform_cert = self._get_platform_certificate(wechatpay_serial)
+            if platform_cert is None:
+                logger.error("获取平台证书失败")
+                return False
+            
+            # 验证签名
+            try:
+                platform_cert.public_key().verify(
+                    base64.b64decode(wechatpay_signature),
+                    sign_str.encode("utf-8"),
+                    padding.PKCS1v15(),
+                    hashes.SHA256()
+                )
+                return True
+            except Exception as e:
+                logger.error(f"签名验证失败: {e}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"验证回调签名异常: {e}")
+            return False
+
+    def _get_platform_certificate(self, serial_no: str) -> Optional[Any]:
+        """获取微信支付平台证书
+        
+        Args:
+            serial_no: 证书序列号
+            
+        Returns:
+            证书对象
+        """
+        # 从缓存或数据库获取平台证书
+        # 实际项目中应该缓存证书并定期更新
+        try:
+            # 调用微信支付API获取平台证书
+            # 这里简化处理，实际应该实现证书缓存机制
+            cert_path = settings.WECHAT_PLATFORM_CERT_PATH
+            if cert_path and os.path.exists(cert_path):
+                with open(cert_path, "rb") as f:
+                    from cryptography.x509 import load_pem_x509_certificate
+                    return load_pem_x509_certificate(f.read(), default_backend())
+            return None
+        except Exception as e:
+            logger.error(f"获取平台证书失败: {e}")
+            return None
+
+    def _decrypt_resource(self, resource: Dict) -> Dict:
+        """解密回调资源数据
+        
+        Args:
+            resource: 加密的资源数据
+            
+        Returns:
+            解密后的数据
+        """
+        algorithm = resource.get("algorithm")
+        ciphertext = resource.get("ciphertext")
+        associated_data = resource.get("associated_data", "")
+        nonce = resource.get("nonce")
+        
+        if algorithm != "AEAD_AES_256_GCM":
+            raise ValueError(f"不支持的加密算法: {algorithm}")
+        
+        # 使用API V3密钥解密
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        
+        key = self.api_v3_key.encode("utf-8")
+        aesgcm = AESGCM(key)
+        
+        # 组合认证数据
+        ciphertext_bytes = base64.b64decode(ciphertext)
+        nonce_bytes = nonce.encode("utf-8")
+        associated_data_bytes = associated_data.encode("utf-8")
+        
+        # 解密
+        decrypted_data = aesgcm.decrypt(nonce_bytes, ciphertext_bytes, associated_data_bytes)
+        
+        return json.loads(decrypted_data.decode("utf-8"))
+
+    async def _update_order_status(self, order_id: str, status: str, transaction_id: Optional[str] = None):
+        """更新订单状态
+        
+        Args:
+            order_id: 订单号
+            status: 新状态
             transaction_id: 微信支付交易号
         """
         conn = get_db_connection()
         try:
-            # 更新订单状态
-            conn.execute(
-                """UPDATE payment_orders 
-                   SET status = ?, transaction_id = ?, paid_at = ?, updated_at = ?
-                   WHERE id = ?""",
-                (PAY_STATUS_SUCCESS, transaction_id, datetime.now(), datetime.now(), order.id)
-            )
+            cursor = conn.cursor()
+            update_fields = ["status = ?", "updated_at = ?"]
+            params = [status, datetime.now().isoformat()]
             
-            # 创建支付记录
-            conn.execute(
-                """INSERT INTO payment_records 
-                   (user_id, order_id, amount, payment_method, transaction_id, status, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (order.user_id, order.id, order.total_fee, "wechat", transaction_id, PAY_STATUS_SUCCESS, datetime.now())
-            )
+            if transaction_id:
+                update_fields.append("transaction_id = ?")
+                params.append(transaction_id)
             
-            # 为用户添加credits
-            conn.execute(
-                """UPDATE users SET credits = credits + ? WHERE id = ?""",
-                (CREDITS_PER_PAY, order.user_id)
-            )
+            params.append(order_id)
             
-            # 创建credits交易记录
-            conn.execute(
-                """INSERT INTO credit_transactions 
-                   (user_id, amount, transaction_type, description, reference_id, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (order.user_id, CREDITS_PER_PAY, "recharge", "诊断服务支付", order.id, datetime.now())
-            )
-            
+            cursor.execute(f"""
+                UPDATE payment_orders 
+                SET {', '.join(update_fields)}
+                WHERE order_id = ?
+            """, params)
             conn.commit()
-            logger.info(f"支付成功处理完成: order={order.out_trade_no}, transaction={transaction_id}")
-            
+            logger.info(f"订单状态更新成功: {order_id} -> {status}")
         except Exception as e:
+            logger.error(f"更新订单状态失败: {e}")
             conn.rollback()
-            logger.error(f"处理支付成功失败: {e}")
             raise
         finally:
             conn.close()
 
-    async def _process_failed_payment(self, order: PaymentOrder, trade_state: str):
-        """处理支付失败
+    async def _add_credits_for_order(self, order_id: str):
+        """为订单增加用户credits
         
         Args:
-            order: 支付订单
-            trade_state: 交易状态
+            order_id: 订单号
         """
         conn = get_db_connection()
         try:
-            conn.execute(
-                """UPDATE payment_orders 
-                   SET status = ?, updated_at = ?
-                   WHERE id = ?""",
-                (PAY_STATUS_FAILED, datetime.now(), order.id)
-            )
+            cursor = conn.cursor()
+            
+            # 获取订单信息
+            cursor.execute("SELECT openid, amount FROM payment_orders WHERE order_id = ?", (order_id,))
+            order = cursor.fetchone()
+            
+            if not order:
+                logger.error(f"订单不存在: {order_id}")
+                return
+            
+            openid = order["openid"]
+            amount = Decimal(order["amount"])
+            
+            # 计算应获得的credits数量
+            # 按次诊断计费：每次支付获得1个credits
+            credits_to_add = CREDITS_PER_PAY
+            
+            # 更新用户credits余额
+            cursor.execute("""
+                UPDATE users 
+                SET credits = credits + ?,
+                    total_credits = total_credits + ?,
+                    updated_at = ?
+                WHERE openid = ?
+            """, (credits_to_add, credits_to_add, datetime.now().isoformat(), openid))
+            
+            # 记录credits交易
+            cursor.execute("""
+                INSERT INTO credit_transactions 
+                (openid, amount, transaction_type, order_id, description, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                openid,
+                credits_to_add,
+                "purchase",
+                order_id,
+                f"购买诊断次数 {credits_to_add} 次",
+                datetime.now().isoformat()
+            ))
+            
             conn.commit()
-            logger.info(f"支付失败处理完成: order={order.out_trade_no}, state={trade_state}")
+            logger.info(f"用户 {openid} 增加 {credits_to_add} credits 成功")
+            
         except Exception as e:
+            logger.error(f"增加credits失败: {e}")
             conn.rollback()
-            logger.error(f"处理支付失败失败: {e}")
             raise
         finally:
             conn.close()
 
-    async def check_user_credits(self, user_id: int) -> Tuple[bool, int]:
-        """检查用户credits是否足够
+    async def query_order(self, order_id: str) -> Optional[Dict]:
+        """查询订单状态
         
         Args:
-            user_id: 用户ID
+            order_id: 订单号
             
         Returns:
-            (是否足够, 当前credits数量)
+            订单信息
         """
+        # 从数据库查询
         conn = get_db_connection()
         try:
-            cursor = conn.execute("SELECT credits FROM users WHERE id = ?", (user_id,))
-            row = cursor.fetchone()
-            if not row:
-                return False, 0
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM payment_orders WHERE order_id = ?
+            """, (order_id,))
+            order = cursor.fetchone()
             
-            credits = row["credits"]
-            return credits >= DIAGNOSIS_CREDITS, credits
+            if order:
+                return dict(order)
+            return None
         finally:
             conn.close()
 
-    async def deduct_credits(self, user_id: int, diagnosis_id: int) -> bool:
-        """扣除诊断credits
+    async def close_order(self, order_id: str) -> bool:
+        """关闭订单
         
         Args:
-            user_id: 用户ID
-            diagnosis_id: 诊断记录ID
+            order_id: 订单号
+            
+        Returns:
+            是否成功
+        """
+        try:
+            # 调用微信支付API关闭订单
+            await self._make_request("POST", f"/pay/transactions/out-trade-no/{order_id}/close", {})
+            
+            # 更新本地订单状态
+            await self._update_order_status(order_id, PAY_STATUS_FAILED)
+            
+            return True
+        except Exception as e:
+            logger.error(f"关闭订单失败: {e}")
+            return False
+
+    async def refund_order(self, order_id: str, refund_amount: Optional[Decimal] = None) -> Dict:
+        """退款
+        
+        Args:
+            order_id: 订单号
+            refund_amount: 退款金额（可选，默认全额退款）
+            
+        Returns:
+            退款结果
+        """
+        # 获取订单信息
+        order = await self.query_order(order_id)
+        if not order:
+            raise HTTPException(status_code=404, detail="订单不存在")
+        
+        if order["status"] != PAY_STATUS_SUCCESS:
+            raise HTTPException(status_code=400, detail="订单状态不允许退款")
+        
+        # 生成退款单号
+        refund_id = f"RF{self._generate_order_id()}"
+        
+        # 计算退款金额
+        amount = refund_amount if refund_amount else Decimal(order["amount"])
+        amount_fen = int(amount * 100)
+        
+        # 构建退款参数
+        params = {
+            "out_trade_no": order_id,
+            "out_refund_no": refund_id,
+            "amount": {
+                "refund": amount_fen,
+                "total": int(Decimal(order["amount"]) * 100),
+                "currency": "CNY"
+            },
+            "notify_url": self.refund_notify_url
+        }
+        
+        # 调用退款API
+        result = await self._make_request("POST", "/refund/domestic/refunds", params)
+        
+        # 更新订单状态
+        await self._update_order_status(order_id, PAY_STATUS_REFUND)
+        
+        # 扣除用户credits
+        await self._deduct_credits_for_refund(order_id)
+        
+        return {
+            "refund_id": refund_id,
+            "order_id": order_id,
+            "amount": amount,
+            "status": "processing"
+        }
+
+    async def _deduct_credits_for_refund(self, order_id: str):
+        """退款时扣除用户credits
+        
+        Args:
+            order_id: 订单号
+        """
+        conn = get_db_connection()
+        try:
+            cursor = conn.cursor()
+            
+            # 获取订单信息
+            cursor.execute("SELECT openid FROM payment_orders WHERE order_id = ?", (order_id,))
+            order = cursor.fetchone()
+            
+            if not order:
+                logger.error(f"订单不存在: {order_id}")
+                return
+            
+            openid = order["openid"]
+            
+            # 扣除credits
+            cursor.execute("""
+                UPDATE users 
+                SET credits = credits - ?,
+                    updated_at = ?
+                WHERE openid = ? AND credits >= ?
+            """, (CREDITS_PER_PAY, datetime.now().isoformat(), openid, CREDITS_PER_PAY))
+            
+            # 记录credits交易
+            cursor.execute("""
+                INSERT INTO credit_transactions 
+                (openid, amount, transaction_type, order_id, description, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                openid,
+                -CREDITS_PER_PAY,
+                "refund",
+                order_id,
+                f"退款扣除诊断次数 {CREDITS_PER_PAY} 次",
+                datetime.now().isoformat()
+            ))
+            
+            conn.commit()
+            logger.info(f"用户 {openid} 扣除 {CREDITS_PER_PAY} credits 成功")
+            
+        except Exception as e:
+            logger.error(f"扣除credits失败: {e}")
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    async def get_user_credits(self, openid: str) -> int:
+        """获取用户credits余额
+        
+        Args:
+            openid: 用户openid
+            
+        Returns:
+            credits余额
+        """
+        conn = get_db_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT credits FROM users WHERE openid = ?", (openid,))
+            user = cursor.fetchone()
+            
+            if user:
+                return user["credits"]
+            return 0
+        finally:
+            conn.close()
+
+    async def deduct_credits_for_diagnosis(self, openid: str) -> bool:
+        """扣除诊断所需的credits
+        
+        Args:
+            openid: 用户openid
             
         Returns:
             是否扣除成功
         """
         conn = get_db_connection()
         try:
-            # 检查credits是否足够
-            cursor = conn.execute("SELECT credits FROM users WHERE id = ?", (user_id,))
-            row = cursor.fetchone()
-            if not row or row["credits"] < DIAGNOSIS_CREDITS:
+            cursor = conn.cursor()
+            
+            # 检查用户credits是否足够
+            cursor.execute("SELECT credits FROM users WHERE openid = ?", (openid,))
+            user = cursor.fetchone()
+            
+            if not user or user["credits"] < DIAGNOSIS_CREDITS:
+                logger.warning(f"用户 {openid} credits不足")
                 return False
             
             # 扣除credits
-            conn.execute(
-                """UPDATE users SET credits = credits - ? WHERE id = ?""",
-                (DIAGNOSIS_CREDITS, user_id)
-            )
+            cursor.execute("""
+                UPDATE users 
+                SET credits = credits - ?,
+                    total_diagnosis = total_diagnosis + 1,
+                    updated_at = ?
+                WHERE openid = ? AND credits >= ?
+            """, (DIAGNOSIS_CREDITS, datetime.now().isoformat(), openid, DIAGNOSIS_CREDITS))
             
-            # 创建credits交易记录
-            conn.execute(
-                """INSERT INTO credit_transactions 
-                   (user_id, amount, transaction_type, description, reference_id, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (user_id, -DIAGNOSIS_CREDITS, "consume", "诊断服务使用", diagnosis_id, datetime.now())
-            )
+            # 记录credits交易
+            cursor.execute("""
+                INSERT INTO credit_transactions 
+                (openid, amount, transaction_type, description, created_at)
+                VALUES (?, ?, ?, ?, ?)
+            """, (
+                openid,
+                -DIAGNOSIS_CREDITS,
+                "diagnosis",
+                f"诊断消耗 {DIAGNOSIS_CREDITS} 次",
+                datetime.now().isoformat()
+            ))
             
             conn.commit()
+            logger.info(f"用户 {openid} 扣除 {DIAGNOSIS_CREDITS} credits 用于诊断")
             return True
             
         except Exception as e:
+            logger.error(f"扣除诊断credits失败: {e}")
             conn.rollback()
-            logger.error(f"扣除credits失败: {e}")
             return False
         finally:
             conn.close()
 
-    async def get_user_credits_history(self, user_id: int, page: int = 1, page_size: int = 20) -> Dict:
-        """获取用户credits历史记录
+    async def get_credit_transactions(self, openid: str, limit: int = 20, offset: int = 0) -> Dict:
+        """获取用户credits交易记录
         
         Args:
-            user_id: 用户ID
-            page: 页码
-            page_size: 每页数量
+            openid: 用户openid
+            limit: 每页数量
+            offset: 偏移量
             
         Returns:
-            历史记录
+            交易记录列表和总数
         """
         conn = get_db_connection()
         try:
-            offset = (page - 1) * page_size
+            cursor = conn.cursor()
             
             # 查询总数
-            cursor = conn.execute(
-                "SELECT COUNT(*) as total FROM credit_transactions WHERE user_id = ?",
-                (user_id,)
-            )
+            cursor.execute("""
+                SELECT COUNT(*) as total FROM credit_transactions WHERE openid = ?
+            """, (openid,))
             total = cursor.fetchone()["total"]
             
             # 查询记录
-            cursor = conn.execute(
-                """SELECT * FROM credit_transactions 
-                   WHERE user_id = ? 
-                   ORDER BY created_at DESC 
-                   LIMIT ? OFFSET ?""",
-                (user_id, page_size, offset)
-            )
-            records = cursor.fetchall()
+            cursor.execute("""
+                SELECT * FROM credit_transactions 
+                WHERE openid = ?
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?
+            """, (openid, limit, offset))
+            
+            transactions = [dict(row) for row in cursor.fetchall()]
             
             return {
                 "total": total,
-                "page": page,
-                "page_size": page_size,
-                "records": [dict(r) for r in records]
+                "transactions": transactions,
+                "limit": limit,
+                "offset": offset
             }
         finally:
             conn.close()
 
-    def _generate_order_no(self, user_id: int) -> str:
-        """生成商户订单号
-        
-        Args:
-            user_id: 用户ID
-            
-        Returns:
-            订单号
-        """
-        timestamp = int(time.time())
-        random_str = secrets.token_hex(4)
-        return f"DX{timestamp}{user_id:06d}{random_str}"
-
-    async def _create_payment_order(self, user_id: int, out_trade_no: str, total_fee: int, description: str) -> PaymentOrder:
-        """创建支付订单记录
-        
-        Args:
-            user_id: 用户ID
-            out_trade_no: 商户订单号
-            total_fee: 订单金额（分）
-            description: 商品描述
-            
-        Returns:
-            支付订单对象
-        """
-        conn = get_db_connection()
-        try:
-            cursor = conn.execute(
-                """INSERT INTO payment_orders 
-                   (user_id, out_trade_no, total_fee, description, status, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (user_id, out_trade_no, total_fee, description, PAY_STATUS_PENDING, datetime.now(), datetime.now())
-            )
-            conn.commit()
-            
-            order_id = cursor.lastrowid
-            return PaymentOrder(
-                id=order_id,
-                user_id=user_id,
-                out_trade_no=out_trade_no,
-                total_fee=total_fee,
-                description=description,
-                status=PAY_STATUS_PENDING
-            )
-        finally:
-            conn.close()
-
-    async def _get_order_by_out_trade_no(self, out_trade_no: str) -> Optional[PaymentOrder]:
-        """根据商户订单号查询订单
-        
-        Args:
-            out_trade_no: 商户订单号
-            
-        Returns:
-            支付订单对象
-        """
-        conn = get_db_connection()
-        try:
-            cursor = conn.execute(
-                "SELECT * FROM payment_orders WHERE out_trade_no = ?",
-                (out_trade_no,)
-            )
-            row = cursor.fetchone()
-            if row:
-                return PaymentOrder(**dict(row))
-            return None
-        finally:
-            conn.close()
-
-    async def close(self):
-        """关闭服务"""
-        await self.wechat_pay.close()
-
 
 # 创建全局支付服务实例
-payment_service = PaymentService()
+payment_service = WeChatPayV3Service()

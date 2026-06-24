@@ -127,14 +127,83 @@ class PaymentRecord(BaseModel):
     user_id: str = Field("", description="用户openid")
     order_no: str = Field("", description="订单号（业务唯一）")
     amount: float = Field(0.0, description="支付金额（元）")
-    credits: int = Field(0, description="购买的诊断次数")
-    status: PaymentStatus = PaymentStatus.PENDING
+    credits: int = Field(0, description="购买诊断次数")
+    status: PaymentStatus = Field(PaymentStatus.PENDING, description="支付状态")
+    payment_method: str = Field("", description="支付方式：wechat/alipay")
+    transaction_id: str = Field("", description="微信/支付宝交易号")
     created_at: str = Field(default_factory=lambda: datetime.now().isoformat(), description="创建时间")
+    updated_at: str = Field(default_factory=lambda: datetime.now().isoformat(), description="更新时间")
     paid_at: Optional[str] = Field(None, description="支付完成时间")
-    # 微信支付相关字段
+    refunded_at: Optional[str] = Field(None, description="退款时间")
+    remark: str = Field("", description="备注信息")
+
+
+class PaymentRequest(BaseModel):
+    """支付请求参数"""
+    user_id: str = Field(..., description="用户openid")
+    credits: int = Field(..., ge=1, description="购买诊断次数（至少1次）")
+    payment_method: str = Field("wechat", description="支付方式：wechat/alipay")
+    remark: str = Field("", description="备注信息")
+
+
+class PaymentResponse(BaseModel):
+    """支付响应"""
+    success: bool = Field(False, description="是否成功")
+    message: str = Field("", description="提示信息")
+    payment_record: Optional[PaymentRecord] = Field(None, description="支付记录")
     prepay_id: Optional[str] = Field(None, description="微信预支付ID")
-    transaction_id: Optional[str] = Field(None, description="微信支付订单号")
-    # 商品描述
-    description: str = Field("", description="商品描述")
-    # 附加信息
-    extra: Dict = Field(default_factory=dict, description="附加信息")
+    order_no: Optional[str] = Field(None, description="订单号")
+
+
+class DiagnosisUsageRecord(BaseModel):
+    """诊断使用记录"""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="使用记录唯一ID")
+    user_id: str = Field("", description="用户openid")
+    diagnosis_type: str = Field("", description="诊断类型：school_match/transfer_analysis/etc")
+    credits_used: int = Field(1, description="消耗诊断次数")
+    result_summary: str = Field("", description="诊断结果摘要")
+    created_at: str = Field(default_factory=lambda: datetime.now().isoformat(), description="使用时间")
+    payment_record_id: Optional[str] = Field(None, description="关联支付记录ID")
+
+
+class CreditPackage(BaseModel):
+    """诊断次数套餐"""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="套餐唯一ID")
+    name: str = Field("", description="套餐名称")
+    credits: int = Field(0, description="诊断次数")
+    price: float = Field(0.0, description="价格（元）")
+    original_price: float = Field(0.0, description="原价（元）")
+    is_active: bool = Field(True, description="是否启用")
+    description: str = Field("", description="套餐描述")
+    created_at: str = Field(default_factory=lambda: datetime.now().isoformat(), description="创建时间")
+
+
+# ============================================================
+# 付费配置
+# ============================================================
+
+class PaymentConfig(BaseModel):
+    """支付配置"""
+    # 微信支付配置
+    wechat_app_id: str = Field("", description="微信小程序AppID")
+    wechat_mch_id: str = Field("", description="微信商户号")
+    wechat_api_key: str = Field("", description="微信支付API密钥")
+    wechat_cert_path: str = Field("", description="微信证书路径")
+    wechat_notify_url: str = Field("", description="微信支付回调URL")
+    
+    # 支付宝配置
+    alipay_app_id: str = Field("", description="支付宝AppID")
+    alipay_private_key: str = Field("", description="支付宝私钥")
+    alipay_public_key: str = Field("", description="支付宝公钥")
+    alipay_notify_url: str = Field("", description="支付宝回调URL")
+    
+    # 诊断次数价格配置
+    credit_price_per_unit: float = Field(9.9, description="单次诊断价格（元）")
+    credit_packages: List[CreditPackage] = Field(default_factory=list, description="诊断套餐列表")
+    
+    # 免费额度配置
+    free_daily_queries: int = Field(5, description="每日免费查询次数")
+    free_monthly_diagnoses: int = Field(3, description="每月免费诊断次数")
+    
+    # 过期配置
+    credit_expire_days: int = Field(365, description="诊断次数有效期（天）")

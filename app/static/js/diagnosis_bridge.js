@@ -1,4 +1,3 @@
-```javascript
 /**
  * diagnosis_bridge.js
  * 诊断引导组件脚本 — 处理查询→诊断的上下文传递
@@ -144,17 +143,22 @@
      * @param {string} message - 加载提示信息
      */
     function showLoading(message = '处理中...') {
-        const loadingEl = document.getElementById('diagnosis-loading');
-        if (loadingEl) {
-            loadingEl.textContent = message;
-            loadingEl.style.display = 'block';
+        let loadingEl = document.getElementById('diagnosis-loading');
+        if (!loadingEl) {
+            loadingEl = document.createElement('div');
+            loadingEl.id = 'diagnosis-loading';
+            loadingEl.className = 'diagnosis-loading-overlay';
+            loadingEl.innerHTML = `
+                <div class="diagnosis-loading-content">
+                    <div class="diagnosis-loading-spinner"></div>
+                    <p class="diagnosis-loading-text">${message}</p>
+                </div>
+            `;
+            document.body.appendChild(loadingEl);
         } else {
-            const div = document.createElement('div');
-            div.id = 'diagnosis-loading';
-            div.className = 'diagnosis-loading';
-            div.textContent = message;
-            div.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.8);color:#fff;padding:20px 30px;border-radius:8px;z-index:9999;font-size:16px;';
-            document.body.appendChild(div);
+            const textEl = loadingEl.querySelector('.diagnosis-loading-text');
+            if (textEl) textEl.textContent = message;
+            loadingEl.style.display = 'flex';
         }
     }
 
@@ -171,18 +175,37 @@
     /**
      * 显示错误提示
      * @param {string} message - 错误信息
+     * @param {number} duration - 显示时长（毫秒）
      */
-    function showError(message) {
-        const errorEl = document.getElementById('diagnosis-error');
-        if (errorEl) {
-            errorEl.textContent = message;
-            errorEl.style.display = 'block';
-            setTimeout(() => {
-                errorEl.style.display = 'none';
-            }, 5000);
-        } else {
-            alert(message);
-        }
+    function showError(message, duration = 5000) {
+        const errorEl = document.createElement('div');
+        errorEl.className = 'diagnosis-error-toast';
+        errorEl.textContent = message;
+        document.body.appendChild(errorEl);
+        
+        setTimeout(() => {
+            if (errorEl.parentNode) {
+                errorEl.parentNode.removeChild(errorEl);
+            }
+        }, duration);
+    }
+
+    /**
+     * 显示成功提示
+     * @param {string} message - 成功信息
+     * @param {number} duration - 显示时长（毫秒）
+     */
+    function showSuccess(message, duration = 3000) {
+        const successEl = document.createElement('div');
+        successEl.className = 'diagnosis-success-toast';
+        successEl.textContent = message;
+        document.body.appendChild(successEl);
+        
+        setTimeout(() => {
+            if (successEl.parentNode) {
+                successEl.parentNode.removeChild(successEl);
+            }
+        }, duration);
     }
 
     // ============================================================
@@ -190,738 +213,818 @@
     // ============================================================
 
     /**
-     * 诊断桥接器主类
+     * DiagnosisBridge 主类
      */
     class DiagnosisBridge {
         constructor() {
-            this.context = null;
             this.initialized = false;
-            this.creditsCheckInProgress = false;
+            this.context = null;
+            this.creditsBalance = 0;
+            this.diagnosisHistory = [];
+            this.currentDiagnosisId = null;
+            
+            // 绑定事件处理器
+            this._bindEvents();
         }
 
         /**
          * 初始化桥接器
          */
-        init() {
+        async init() {
             if (this.initialized) return;
-            this.initialized = true;
-
-            // 加载已保存的上下文
-            this.loadContext();
-
-            // 根据当前页面执行不同初始化逻辑
-            if (isOnQueryPage()) {
-                this.initQueryPage();
-            } else if (isOnDiagnosisPage()) {
-                this.initDiagnosisPage();
-            }
-
-            // 监听自定义事件
-            this.bindEvents();
-
-            console.log('[diagnosis_bridge] 初始化完成');
-        }
-
-        /**
-         * 加载上下文
-         */
-        loadContext() {
-            const stored = localStorage.getItem(CONFIG.STORAGE_KEY);
-            if (stored) {
-                const parsed = safeParseJSON(stored);
-                if (parsed && !isContextExpired(parsed)) {
-                    this.context = parsed;
-                } else {
-                    // 上下文过期，清除
-                    localStorage.removeItem(CONFIG.STORAGE_KEY);
+            
+            try {
+                // 加载历史记录
+                this._loadHistory();
+                
+                // 加载上下文
+                this._loadContext();
+                
+                // 获取当前积分余额
+                await this._fetchCreditsBalance();
+                
+                // 根据当前页面执行不同初始化
+                if (isOnDiagnosisPage()) {
+                    this._initDiagnosisPage();
+                } else if (isOnQueryPage()) {
+                    this._initQueryPage();
                 }
+                
+                this.initialized = true;
+                console.log('[diagnosis_bridge] 初始化完成');
+            } catch (error) {
+                console.error('[diagnosis_bridge] 初始化失败:', error);
+                showError('诊断桥接器初始化失败，请刷新页面重试');
             }
-        }
-
-        /**
-         * 保存上下文
-         * @param {Object} context - 上下文数据
-         */
-        saveContext(context) {
-            const data = {
-                ...context,
-                id: context.id || generateId(),
-                timestamp: Date.now()
-            };
-            this.context = data;
-            localStorage.setItem(CONFIG.STORAGE_KEY, JSON.stringify(data));
-        }
-
-        /**
-         * 清除上下文
-         */
-        clearContext() {
-            this.context = null;
-            localStorage.removeItem(CONFIG.STORAGE_KEY);
-        }
-
-        /**
-         * 初始化查询页面
-         */
-        initQueryPage() {
-            this.renderGuideBar();
-            this.bindQueryPageEvents();
-        }
-
-        /**
-         * 初始化诊断页面
-         */
-        initDiagnosisPage() {
-            this.renderContextBadge();
-            this.bindDiagnosisPageEvents();
         }
 
         /**
          * 绑定全局事件
          */
-        bindEvents() {
+        _bindEvents() {
             // 监听诊断完成事件
             document.addEventListener(CONFIG.EVENTS.DIAGNOSIS_COMPLETE, (e) => {
-                this.handleDiagnosisComplete(e.detail);
+                this._handleDiagnosisComplete(e.detail);
             });
 
-            // 监听导航到诊断事件
+            // 监听导航到诊断页面事件
             document.addEventListener(CONFIG.EVENTS.NAVIGATE_TO_DIAGNOSIS, (e) => {
-                this.handleNavigateToDiagnosis(e.detail);
+                this._handleNavigateToDiagnosis(e.detail);
             });
 
-            // 监听查看历史事件
-            document.addEventListener(CONFIG.EVENTS.DIAGNOSIS_HISTORY, () => {
-                this.showHistory();
-            });
-
-            // 监听次数检查事件
+            // 监听积分检查事件
             document.addEventListener(CONFIG.EVENTS.CREDITS_CHECK, (e) => {
-                this.handleCreditsCheck(e.detail);
+                this._handleCreditsCheck(e.detail);
             });
 
             // 监听付费引导事件
             document.addEventListener(CONFIG.EVENTS.PAYMENT_GUIDE, () => {
-                this.showPaymentGuide();
+                this._showPaymentGuide();
             });
 
             // 监听政策引用点击事件
             document.addEventListener(CONFIG.EVENTS.POLICY_REFERENCE_CLICK, (e) => {
-                this.handlePolicyReferenceClick(e.detail);
+                this._handlePolicyReferenceClick(e.detail);
             });
         }
 
         /**
-         * 绑定查询页面事件
+         * 加载上下文
          */
-        bindQueryPageEvents() {
-            // 监听查询表单提交
-            const queryForm = document.getElementById('query-form');
-            if (queryForm) {
-                queryForm.addEventListener('submit', (e) => {
-                    // 捕获查询上下文
-                    const formData = new FormData(queryForm);
-                    const context = {
-                        query: formData.get('query') || '',
-                        grade: formData.get('grade') || '',
-                        region: formData.get('region') || '',
-                        schoolType: formData.get('school_type') || '',
-                        additionalInfo: formData.get('additional_info') || ''
-                    };
-                    this.saveContext(context);
-                });
-            }
-
-            // 监听查询结果中的诊断引导按钮点击
-            document.addEventListener('click', (e) => {
-                const target = e.target.closest(`.${CONFIG.UI.GUIDE_BUTTON_CLASS}`);
-                if (target) {
-                    e.preventDefault();
-                    const contextData = target.dataset.context;
-                    if (contextData) {
-                        const context = safeParseJSON(contextData);
-                        if (context) {
-                            this.saveContext(context);
-                        }
-                    }
-                    this.navigateToDiagnosis();
-                }
-            });
-        }
-
-        /**
-         * 绑定诊断页面事件
-         */
-        bindDiagnosisPageEvents() {
-            // 监听诊断表单提交
-            const diagnosisForm = document.getElementById('diagnosis-form');
-            if (diagnosisForm) {
-                diagnosisForm.addEventListener('submit', (e) => {
-                    e.preventDefault();
-                    this.startDiagnosis();
-                });
-            }
-
-            // 监听一键重新诊断按钮
-            const reDiagnoseBtn = document.getElementById('re-diagnose-btn');
-            if (reDiagnoseBtn) {
-                reDiagnoseBtn.addEventListener('click', () => {
-                    this.clearContext();
-                    window.location.href = CONFIG.QUERY_PATH;
-                });
-            }
-
-            // 监听政策引用链接点击
-            document.addEventListener('click', (e) => {
-                const target = e.target.closest(`.${CONFIG.UI.POLICY_REFERENCE_CLASS}`);
-                if (target) {
-                    e.preventDefault();
-                    const policyId = target.dataset.policyId;
-                    if (policyId) {
-                        this.viewPolicyDetail(policyId);
-                    }
-                }
-            });
-        }
-
-        /**
-         * 渲染引导栏（查询结果页底部）
-         */
-        renderGuideBar() {
-            // 检查是否已存在
-            if (document.querySelector(`.${CONFIG.UI.GUIDE_BAR_CLASS}`)) return;
-
-            const guideBar = document.createElement('div');
-            guideBar.className = CONFIG.UI.GUIDE_BAR_CLASS;
-            guideBar.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#fff;padding:15px 20px;text-align:center;z-index:1000;box-shadow:0 -2px 10px rgba(0,0,0,0.1);';
-
-            const text = document.createElement('p');
-            text.textContent = '想要更精准的升学建议？试试AI智能诊断！';
-            text.style.cssText = 'margin:0 0 10px 0;font-size:16px;';
-
-            const btn = document.createElement('button');
-            btn.className = CONFIG.UI.GUIDE_BUTTON_CLASS;
-            btn.textContent = '开始诊断';
-            btn.style.cssText = 'background:#fff;color:#667eea;border:none;padding:10px 30px;border-radius:25px;font-size:16px;cursor:pointer;font-weight:bold;transition:transform 0.2s;';
-            btn.addEventListener('mouseenter', () => {
-                btn.style.transform = 'scale(1.05)';
-            });
-            btn.addEventListener('mouseleave', () => {
-                btn.style.transform = 'scale(1)';
-            });
-            btn.addEventListener('click', () => {
-                this.navigateToDiagnosis();
-            });
-
-            guideBar.appendChild(text);
-            guideBar.appendChild(btn);
-            document.body.appendChild(guideBar);
-        }
-
-        /**
-         * 渲染上下文徽章（诊断页面）
-         */
-        renderContextBadge() {
-            if (!this.context) return;
-
-            const badgeContainer = document.getElementById('context-badge-container');
-            if (!badgeContainer) return;
-
-            const badge = document.createElement('div');
-            badge.className = CONFIG.UI.CONTEXT_BADGE_CLASS;
-            badge.style.cssText = 'background:#f0f4ff;border:1px solid #d0d7ff;border-radius:8px;padding:12px 16px;margin-bottom:20px;';
-
-            const title = document.createElement('h4');
-            title.textContent = '📋 诊断上下文';
-            title.style.cssText = 'margin:0 0 8px 0;color:#333;font-size:14px;';
-
-            const content = document.createElement('div');
-            content.style.cssText = 'font-size:13px;color:#666;line-height:1.6;';
-
-            if (this.context.query) {
-                const p = document.createElement('p');
-                p.innerHTML = `<strong>查询内容：</strong>${this.context.query}`;
-                content.appendChild(p);
-            }
-            if (this.context.grade) {
-                const p = document.createElement('p');
-                p.innerHTML = `<strong>年级：</strong>${this.context.grade}`;
-                content.appendChild(p);
-            }
-            if (this.context.region) {
-                const p = document.createElement('p');
-                p.innerHTML = `<strong>区域：</strong>${this.context.region}`;
-                content.appendChild(p);
-            }
-
-            badge.appendChild(title);
-            badge.appendChild(content);
-            badgeContainer.appendChild(badge);
-        }
-
-        /**
-         * 导航到诊断页面
-         */
-        navigateToDiagnosis() {
-            // 触发导航事件
-            const event = new CustomEvent(CONFIG.EVENTS.NAVIGATE_TO_DIAGNOSIS, {
-                detail: { context: this.context }
-            });
-            document.dispatchEvent(event);
-
-            // 页面跳转
-            window.location.href = CONFIG.DIAGNOSIS_PATH;
-        }
-
-        /**
-         * 处理导航到诊断事件
-         * @param {Object} detail - 事件详情
-         */
-        handleNavigateToDiagnosis(detail) {
-            if (detail && detail.context) {
-                this.saveContext(detail.context);
-            }
-        }
-
-        /**
-         * 检查诊断次数
-         * @returns {Promise<Object>} 检查结果
-         */
-        async checkCredits() {
-            if (this.creditsCheckInProgress) {
-                return { available: false, message: '检查中，请稍候...' };
-            }
-
-            this.creditsCheckInProgress = true;
-            showLoading('检查诊断次数...');
-
+        _loadContext() {
             try {
-                const response = await fetch(CONFIG.API.CHECK_CREDITS, {
+                const stored = localStorage.getItem(CONFIG.STORAGE_KEY);
+                if (stored) {
+                    const context = safeParseJSON(stored);
+                    if (context && !isContextExpired(context)) {
+                        this.context = context;
+                        console.log('[diagnosis_bridge] 上下文已加载:', context);
+                    } else {
+                        localStorage.removeItem(CONFIG.STORAGE_KEY);
+                        console.log('[diagnosis_bridge] 上下文已过期，已清除');
+                    }
+                }
+            } catch (error) {
+                console.error('[diagnosis_bridge] 加载上下文失败:', error);
+            }
+        }
+
+        /**
+         * 保存上下文
+         * @param {Object} context - 上下文对象
+         */
+        _saveContext(context) {
+            try {
+                context.timestamp = Date.now();
+                localStorage.setItem(CONFIG.STORAGE_KEY, JSON.stringify(context));
+                this.context = context;
+                console.log('[diagnosis_bridge] 上下文已保存:', context);
+            } catch (error) {
+                console.error('[diagnosis_bridge] 保存上下文失败:', error);
+            }
+        }
+
+        /**
+         * 清除上下文
+         */
+        _clearContext() {
+            try {
+                localStorage.removeItem(CONFIG.STORAGE_KEY);
+                this.context = null;
+                console.log('[diagnosis_bridge] 上下文已清除');
+            } catch (error) {
+                console.error('[diagnosis_bridge] 清除上下文失败:', error);
+            }
+        }
+
+        /**
+         * 加载历史记录
+         */
+        _loadHistory() {
+            try {
+                const stored = localStorage.getItem(CONFIG.RESULT_STORAGE_KEY);
+                if (stored) {
+                    this.diagnosisHistory = safeParseJSON(stored, []);
+                }
+            } catch (error) {
+                console.error('[diagnosis_bridge] 加载历史记录失败:', error);
+                this.diagnosisHistory = [];
+            }
+        }
+
+        /**
+         * 保存历史记录
+         */
+        _saveHistory() {
+            try {
+                localStorage.setItem(CONFIG.RESULT_STORAGE_KEY, JSON.stringify(this.diagnosisHistory));
+            } catch (error) {
+                console.error('[diagnosis_bridge] 保存历史记录失败:', error);
+            }
+        }
+
+        /**
+         * 添加诊断历史记录
+         * @param {Object} result - 诊断结果
+         */
+        _addHistory(result) {
+            this.diagnosisHistory.unshift({
+                id: result.id || generateId(),
+                timestamp: Date.now(),
+                context: result.context || this.context,
+                summary: result.summary || '',
+                creditsUsed: result.creditsUsed || 1
+            });
+
+            // 限制历史记录数量
+            if (this.diagnosisHistory.length > CONFIG.MAX_HISTORY) {
+                this.diagnosisHistory = this.diagnosisHistory.slice(0, CONFIG.MAX_HISTORY);
+            }
+
+            this._saveHistory();
+        }
+
+        /**
+         * 获取积分余额
+         */
+        async _fetchCreditsBalance() {
+            try {
+                const response = await fetch(CONFIG.API.GET_CREDITS, {
                     method: 'GET',
                     headers: {
                         'Content-Type': 'application/json',
                         'X-Requested-With': 'XMLHttpRequest'
-                    },
-                    credentials: 'same-origin'
+                    }
                 });
 
                 if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    throw new Error(`获取积分余额失败: ${response.status}`);
                 }
 
                 const data = await response.json();
-                return data;
+                this.creditsBalance = data.balance || 0;
+                console.log('[diagnosis_bridge] 当前积分余额:', this.creditsBalance);
+                return this.creditsBalance;
             } catch (error) {
-                console.error('[diagnosis_bridge] 检查诊断次数失败:', error);
+                console.error('[diagnosis_bridge] 获取积分余额失败:', error);
+                this.creditsBalance = 0;
+                return 0;
+            }
+        }
+
+        /**
+         * 检查积分是否足够
+         * @returns {Promise<Object>} 检查结果
+         */
+        async checkCredits() {
+            try {
+                showLoading('正在检查积分...');
+                
+                const response = await fetch(CONFIG.API.CHECK_CREDITS, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest'
+                    },
+                    body: JSON.stringify({
+                        required: CONFIG.PAYMENT.MIN_CREDITS_REQUIRED
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`积分检查失败: ${response.status}`);
+                }
+
+                const data = await response.json();
+                
+                // 更新本地积分余额
+                this.creditsBalance = data.balance || 0;
+                
+                hideLoading();
+                
                 return {
-                    available: false,
-                    message: '检查诊断次数失败，请稍后重试',
+                    sufficient: data.sufficient || false,
+                    balance: this.creditsBalance,
+                    required: CONFIG.PAYMENT.MIN_CREDITS_REQUIRED,
+                    price: CONFIG.PAYMENT.PRICE_PER_DIAGNOSIS
+                };
+            } catch (error) {
+                hideLoading();
+                console.error('[diagnosis_bridge] 积分检查失败:', error);
+                showError('积分检查失败，请稍后重试');
+                return {
+                    sufficient: false,
+                    balance: 0,
+                    required: CONFIG.PAYMENT.MIN_CREDITS_REQUIRED,
+                    price: CONFIG.PAYMENT.PRICE_PER_DIAGNOSIS,
                     error: error.message
                 };
-            } finally {
-                this.creditsCheckInProgress = false;
-                hideLoading();
             }
         }
 
         /**
-         * 处理次数检查事件
-         * @param {Object} detail - 事件详情
+         * 消耗积分并开始诊断
+         * @param {Object} context - 诊断上下文
+         * @returns {Promise<Object>} 诊断结果
          */
-        async handleCreditsCheck(detail) {
-            const result = await this.checkCredits();
-            
-            if (result.available) {
-                // 次数充足，显示确认弹窗
-                this.showConfirmModal(result);
-            } else {
-                // 次数不足，触发付费引导
-                const event = new CustomEvent(CONFIG.EVENTS.CREDITS_INSUFFICIENT, {
-                    detail: result
-                });
-                document.dispatchEvent(event);
-                this.showPaymentGuide(result);
-            }
-        }
-
-        /**
-         * 显示确认弹窗
-         * @param {Object} creditsInfo - 次数信息
-         */
-        showConfirmModal(creditsInfo) {
-            // 移除已存在的弹窗
-            this.removeConfirmModal();
-
-            const overlay = document.createElement('div');
-            overlay.className = CONFIG.UI.CONFIRM_MODAL_OVERLAY_CLASS;
-            overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9998;display:flex;align-items:center;justify-content:center;';
-
-            const modal = document.createElement('div');
-            modal.className = CONFIG.UI.CONFIRM_MODAL_CLASS;
-            modal.style.cssText = 'background:#fff;border-radius:12px;padding:24px;max-width:400px;width:90%;box-shadow:0 10px 40px rgba(0,0,0,0.2);position:relative;';
-
-            // 标题
-            const title = document.createElement('h3');
-            title.textContent = '🔍 确认诊断';
-            title.style.cssText = 'margin:0 0 16px 0;color:#333;font-size:18px;text-align:center;';
-
-            // 次数信息
-            const info = document.createElement('div');
-            info.style.cssText = 'background:#f8f9ff;border-radius:8px;padding:12px;margin-bottom:16px;font-size:14px;color:#666;';
-            info.innerHTML = `
-                <p style="margin:0 0 8px 0;"><strong>当前剩余次数：</strong>${creditsInfo.balance || 0} 次</p>
-                <p style="margin:0;"><strong>本次诊断消耗：</strong>${CONFIG.PAYMENT.MIN_CREDITS_REQUIRED} 次</p>
-                <p style="margin:8px 0 0 0;color:#999;font-size:12px;">诊断后将扣除 ${CONFIG.PAYMENT.PRICE_PER_DIAGNOSIS} 元/次</p>
-            `;
-
-            // 按钮组
-            const btnGroup = document.createElement('div');
-            btnGroup.style.cssText = 'display:flex;gap:12px;justify-content:center;';
-
-            const cancelBtn = document.createElement('button');
-            cancelBtn.textContent = '取消';
-            cancelBtn.style.cssText = 'padding:10px 24px;border:1px solid #ddd;border-radius:6px;background:#fff;color:#666;cursor:pointer;font-size:14px;';
-            cancelBtn.addEventListener('click', () => {
-                this.removeConfirmModal();
-            });
-
-            const confirmBtn = document.createElement('button');
-            confirmBtn.textContent = '确认诊断';
-            confirmBtn.style.cssText = 'padding:10px 24px;border:none;border-radius:6px;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#fff;cursor:pointer;font-size:14px;font-weight:bold;';
-            confirmBtn.addEventListener('click', () => {
-                this.removeConfirmModal();
-                this.startDiagnosis();
-            });
-
-            btnGroup.appendChild(cancelBtn);
-            btnGroup.appendChild(confirmBtn);
-
-            modal.appendChild(title);
-            modal.appendChild(info);
-            modal.appendChild(btnGroup);
-            overlay.appendChild(modal);
-            document.body.appendChild(overlay);
-
-            // 点击遮罩关闭
-            overlay.addEventListener('click', (e) => {
-                if (e.target === overlay) {
-                    this.removeConfirmModal();
-                }
-            });
-        }
-
-        /**
-         * 移除确认弹窗
-         */
-        removeConfirmModal() {
-            const overlay = document.querySelector(`.${CONFIG.UI.CONFIRM_MODAL_OVERLAY_CLASS}`);
-            if (overlay) {
-                overlay.remove();
-            }
-        }
-
-        /**
-         * 显示付费引导
-         * @param {Object} creditsInfo - 次数信息
-         */
-        showPaymentGuide(creditsInfo) {
-            // 触发付费引导事件
-            const event = new CustomEvent(CONFIG.EVENTS.PAYMENT_GUIDE, {
-                detail: creditsInfo
-            });
-            document.dispatchEvent(event);
-
-            // 移除已存在的引导
-            const existingGuide = document.getElementById('payment-guide-modal');
-            if (existingGuide) {
-                existingGuide.remove();
-            }
-
-            const overlay = document.createElement('div');
-            overlay.id = 'payment-guide-modal';
-            overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
-
-            const modal = document.createElement('div');
-            modal.style.cssText = 'background:#fff;border-radius:12px;padding:24px;max-width:400px;width:90%;box-shadow:0 10px 40px rgba(0,0,0,0.2);';
-
-            // 标题
-            const title = document.createElement('h3');
-            title.textContent = '💡 诊断次数不足';
-            title.style.cssText = 'margin:0 0 16px 0;color:#333;font-size:18px;text-align:center;';
-
-            // 信息
-            const info = document.createElement('div');
-            info.style.cssText = 'background:#fff3f3;border-radius:8px;padding:12px;margin-bottom:16px;font-size:14px;color:#666;';
-            info.innerHTML = `
-                <p style="margin:0 0 8px 0;"><strong>当前剩余次数：</strong>${creditsInfo ? creditsInfo.balance : 0} 次</p>
-                <p style="margin:0;"><strong>每次诊断需消耗：</strong>${CONFIG.PAYMENT.MIN_CREDITS_REQUIRED} 次</p>
-                <p style="margin:8px 0 0 0;color:#e74c3c;font-size:13px;">请购买诊断次数后再进行诊断</p>
-            `;
-
-            // 套餐推荐
-            const packages = document.createElement('div');
-            packages.style.cssText = 'margin-bottom:16px;';
-            packages.innerHTML = `
-                <h4 style="margin:0 0 8px 0;color:#333;font-size:14px;">推荐套餐</h4>
-                <div style="background:#f8f9ff;border-radius:8px;padding:12px;">
-                    <p style="margin:0 0 4px 0;color:#667eea;font-weight:bold;">单次诊断：¥${CONFIG.PAYMENT.PRICE_PER_DIAGNOSIS}</p>
-                    <p style="margin:0;color:#999;font-size:12px;">适合偶尔需要诊断的用户</p>
-                </div>
-                <div style="background:#f0fff4;border-radius:8px;padding:12px;margin-top:8px;">
-                    <p style="margin:0 0 4px 0;color:#27ae60;font-weight:bold;">10次套餐：¥79.0（省20%）</p>
-                    <p style="margin:0;color:#999;font-size:12px;">适合经常需要诊断的用户</p>
-                </div>
-            `;
-
-            // 按钮组
-            const btnGroup = document.createElement('div');
-            btnGroup.style.cssText = 'display:flex;gap:12px;justify-content:center;';
-
-            const closeBtn = document.createElement('button');
-            closeBtn.textContent = '稍后再说';
-            closeBtn.style.cssText = 'padding:10px 24px;border:1px solid #ddd;border-radius:6px;background:#fff;color:#666;cursor:pointer;font-size:14px;';
-            closeBtn.addEventListener('click', () => {
-                overlay.remove();
-            });
-
-            const buyBtn = document.createElement('button');
-            buyBtn.textContent = '去购买';
-            buyBtn.style.cssText = 'padding:10px 24px;border:none;border-radius:6px;background:linear-gradient(135deg,#e74c3c 0%,#c0392b 100%);color:#fff;cursor:pointer;font-size:14px;font-weight:bold;';
-            buyBtn.addEventListener('click', () => {
-                overlay.remove();
-                window.location.href = CONFIG.PAYMENT.PACKAGE_URL;
-            });
-
-            btnGroup.appendChild(closeBtn);
-            btnGroup.appendChild(buyBtn);
-
-            modal.appendChild(title);
-            modal.appendChild(info);
-            modal.appendChild(packages);
-            modal.appendChild(btnGroup);
-            overlay.appendChild(modal);
-            document.body.appendChild(overlay);
-
-            // 点击遮罩关闭
-            overlay.addEventListener('click', (e) => {
-                if (e.target === overlay) {
-                    overlay.remove();
-                }
-            });
-        }
-
-        /**
-         * 开始诊断
-         */
-        async startDiagnosis() {
-            // 先检查次数
-            const creditsResult = await this.checkCredits();
-            
-            if (!creditsResult.available) {
-                this.showPaymentGuide(creditsResult);
-                return;
-            }
-
-            showLoading('正在生成诊断结果...');
-
+        async consumeCreditsAndStartDiagnosis(context) {
             try {
-                // 收集诊断表单数据
-                const formData = new FormData(document.getElementById('diagnosis-form'));
-                const diagnosisData = {
-                    query: formData.get('query') || (this.context ? this.context.query : ''),
-                    grade: formData.get('grade') || (this.context ? this.context.grade : ''),
-                    region: formData.get('region') || (this.context ? this.context.region : ''),
-                    schoolType: formData.get('school_type') || (this.context ? this.context.schoolType : ''),
-                    additionalInfo: formData.get('additional_info') || (this.context ? this.context.additionalInfo : ''),
-                    contextId: this.context ? this.context.id : null
-                };
-
-                // 调用诊断API
+                showLoading('正在消耗积分并开始诊断...');
+                
                 const response = await fetch(CONFIG.API.DIAGNOSIS_START, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                         'X-Requested-With': 'XMLHttpRequest'
                     },
-                    credentials: 'same-origin',
-                    body: JSON.stringify(diagnosisData)
+                    body: JSON.stringify({
+                        context: context,
+                        creditsToConsume: CONFIG.PAYMENT.MIN_CREDITS_REQUIRED
+                    })
                 });
 
                 if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.detail || `诊断启动失败: ${response.status}`);
                 }
 
-                const result = await response.json();
-
-                // 保存诊断结果到历史
-                this.saveDiagnosisResult(result);
-
-                // 触发诊断完成事件
-                const event = new CustomEvent(CONFIG.EVENTS.DIAGNOSIS_COMPLETE, {
-                    detail: result
-                });
-                document.dispatchEvent(event);
-
-                // 显示诊断结果
-                this.displayDiagnosisResult(result);
-
-            } catch (error) {
-                console.error('[diagnosis_bridge] 诊断失败:', error);
-                showError('诊断失败，请稍后重试');
-            } finally {
+                const data = await response.json();
+                
+                // 更新本地积分余额
+                this.creditsBalance = data.remainingCredits || 0;
+                
+                // 保存诊断ID
+                this.currentDiagnosisId = data.diagnosisId;
+                
                 hideLoading();
+                showSuccess('诊断已开始，请稍候...');
+                
+                return data;
+            } catch (error) {
+                hideLoading();
+                console.error('[diagnosis_bridge] 诊断启动失败:', error);
+                showError(error.message || '诊断启动失败，请稍后重试');
+                throw error;
             }
+        }
+
+        /**
+         * 显示确认弹窗
+         * @param {Object} creditsInfo - 积分信息
+         * @returns {Promise<boolean>} 用户是否确认
+         */
+        _showConfirmModal(creditsInfo) {
+            return new Promise((resolve) => {
+                // 移除已存在的弹窗
+                const existingModal = document.querySelector(`.${CONFIG.UI.CONFIRM_MODAL_CLASS}`);
+                if (existingModal) {
+                    existingModal.parentNode.removeChild(existingModal);
+                }
+
+                const modal = document.createElement('div');
+                modal.className = CONFIG.UI.CONFIRM_MODAL_CLASS;
+                modal.innerHTML = `
+                    <div class="${CONFIG.UI.CONFIRM_MODAL_OVERLAY_CLASS}"></div>
+                    <div class="diagnosis-confirm-modal-content">
+                        <div class="diagnosis-confirm-modal-header">
+                            <h3>确认诊断</h3>
+                            <button class="diagnosis-confirm-close" aria-label="关闭">&times;</button>
+                        </div>
+                        <div class="diagnosis-confirm-modal-body">
+                            <div class="diagnosis-credits-info">
+                                <div class="diagnosis-credits-icon">🔍</div>
+                                <p class="diagnosis-credits-text">
+                                    本次诊断将消耗 <strong>${creditsInfo.required}</strong> 次诊断次数
+                                </p>
+                                <p class="diagnosis-credits-balance">
+                                    当前剩余次数：<strong>${creditsInfo.balance}</strong> 次
+                                </p>
+                                ${creditsInfo.balance < creditsInfo.required ? 
+                                    `<p class="diagnosis-credits-warning">⚠️ 次数不足，请先购买诊断次数</p>` : 
+                                    `<p class="diagnosis-credits-price">每次诊断仅需 ¥${creditsInfo.price}</p>`
+                                }
+                            </div>
+                            ${this.context ? `
+                                <div class="diagnosis-context-preview">
+                                    <h4>诊断上下文预览</h4>
+                                    <div class="diagnosis-context-detail">
+                                        <p><strong>查询内容：</strong>${this.context.query || '未指定'}</p>
+                                        ${this.context.policyId ? `<p><strong>政策ID：</strong>${this.context.policyId}</p>` : ''}
+                                        ${this.context.grade ? `<p><strong>年级：</strong>${this.context.grade}</p>` : ''}
+                                    </div>
+                                </div>
+                            ` : ''}
+                        </div>
+                        <div class="diagnosis-confirm-modal-footer">
+                            <button class="diagnosis-btn diagnosis-btn-cancel">取消</button>
+                            ${creditsInfo.balance >= creditsInfo.required ? 
+                                `<button class="diagnosis-btn diagnosis-btn-confirm">确认诊断</button>` :
+                                `<button class="diagnosis-btn diagnosis-btn-recharge">去购买次数</button>`
+                            }
+                        </div>
+                    </div>
+                `;
+
+                document.body.appendChild(modal);
+
+                // 绑定事件
+                const closeBtn = modal.querySelector('.diagnosis-confirm-close');
+                const cancelBtn = modal.querySelector('.diagnosis-btn-cancel');
+                const confirmBtn = modal.querySelector('.diagnosis-btn-confirm');
+                const rechargeBtn = modal.querySelector('.diagnosis-btn-recharge');
+                const overlay = modal.querySelector(`.${CONFIG.UI.CONFIRM_MODAL_OVERLAY_CLASS}`);
+
+                const closeModal = () => {
+                    if (modal.parentNode) {
+                        modal.parentNode.removeChild(modal);
+                    }
+                };
+
+                closeBtn.addEventListener('click', () => {
+                    closeModal();
+                    resolve(false);
+                });
+
+                cancelBtn.addEventListener('click', () => {
+                    closeModal();
+                    resolve(false);
+                });
+
+                overlay.addEventListener('click', () => {
+                    closeModal();
+                    resolve(false);
+                });
+
+                if (confirmBtn) {
+                    confirmBtn.addEventListener('click', () => {
+                        closeModal();
+                        resolve(true);
+                    });
+                }
+
+                if (rechargeBtn) {
+                    rechargeBtn.addEventListener('click', () => {
+                        closeModal();
+                        this._showPaymentGuide();
+                        resolve(false);
+                    });
+                }
+            });
+        }
+
+        /**
+         * 显示付费引导
+         */
+        _showPaymentGuide() {
+            // 触发付费引导事件
+            const event = new CustomEvent(CONFIG.EVENTS.PAYMENT_GUIDE, {
+                detail: {
+                    balance: this.creditsBalance,
+                    required: CONFIG.PAYMENT.MIN_CREDITS_REQUIRED,
+                    price: CONFIG.PAYMENT.PRICE_PER_DIAGNOSIS,
+                    packageUrl: CONFIG.PAYMENT.PACKAGE_URL,
+                    rechargeUrl: CONFIG.PAYMENT.RECHARGE_URL
+                }
+            });
+            document.dispatchEvent(event);
+
+            // 显示付费引导弹窗
+            const modal = document.createElement('div');
+            modal.className = 'diagnosis-payment-guide-modal';
+            modal.innerHTML = `
+                <div class="diagnosis-payment-guide-overlay"></div>
+                <div class="diagnosis-payment-guide-content">
+                    <div class="diagnosis-payment-guide-header">
+                        <h3>诊断次数不足</h3>
+                        <button class="diagnosis-payment-guide-close">&times;</button>
+                    </div>
+                    <div class="diagnosis-payment-guide-body">
+                        <div class="diagnosis-payment-guide-icon">💡</div>
+                        <p class="diagnosis-payment-guide-text">
+                            当前剩余诊断次数：<strong>${this.creditsBalance}</strong> 次
+                        </p>
+                        <p class="diagnosis-payment-guide-text">
+                            每次诊断仅需 <strong>¥${CONFIG.PAYMENT.PRICE_PER_DIAGNOSIS}</strong>
+                        </p>
+                        <div class="diagnosis-payment-guide-packages">
+                            <div class="diagnosis-package-card">
+                                <h4>单次诊断</h4>
+                                <p class="diagnosis-package-price">¥${CONFIG.PAYMENT.PRICE_PER_DIAGNOSIS}</p>
+                                <p class="diagnosis-package-desc">适合偶尔使用</p>
+                                <button class="diagnosis-btn diagnosis-btn-buy" data-package="single">立即购买</button>
+                            </div>
+                            <div class="diagnosis-package-card diagnosis-package-recommended">
+                                <div class="diagnosis-package-badge">推荐</div>
+                                <h4>10次套餐</h4>
+                                <p class="diagnosis-package-price">¥${(CONFIG.PAYMENT.PRICE_PER_DIAGNOSIS * 8).toFixed(1)}</p>
+                                <p class="diagnosis-package-desc">适合频繁使用，省${(CONFIG.PAYMENT.PRICE_PER_DIAGNOSIS * 2).toFixed(1)}元</p>
+                                <button class="diagnosis-btn diagnosis-btn-buy diagnosis-btn-primary" data-package="ten">立即购买</button>
+                            </div>
+                            <div class="diagnosis-package-card">
+                                <h4>30次套餐</h4>
+                                <p class="diagnosis-package-price">¥${(CONFIG.PAYMENT.PRICE_PER_DIAGNOSIS * 21).toFixed(1)}</p>
+                                <p class="diagnosis-package-desc">适合长期使用，省${(CONFIG.PAYMENT.PRICE_PER_DIAGNOSIS * 9).toFixed(1)}元</p>
+                                <button class="diagnosis-btn diagnosis-btn-buy" data-package="thirty">立即购买</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(modal);
+
+            // 绑定事件
+            const closeBtn = modal.querySelector('.diagnosis-payment-guide-close');
+            const overlay = modal.querySelector('.diagnosis-payment-guide-overlay');
+            const buyBtns = modal.querySelectorAll('.diagnosis-btn-buy');
+
+            const closeModal = () => {
+                if (modal.parentNode) {
+                    modal.parentNode.removeChild(modal);
+                }
+            };
+
+            closeBtn.addEventListener('click', closeModal);
+            overlay.addEventListener('click', closeModal);
+
+            buyBtns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const packageType = btn.dataset.package;
+                    closeModal();
+                    // 跳转到购买页面
+                    window.location.href = `${CONFIG.PAYMENT.PACKAGE_URL}?package=${packageType}`;
+                });
+            });
         }
 
         /**
          * 处理诊断完成事件
-         * @param {Object} result - 诊断结果
+         * @param {Object} detail - 诊断结果详情
          */
-        handleDiagnosisComplete(result) {
-            if (result && result.diagnosisId) {
-                // 清除上下文
-                this.clearContext();
+        _handleDiagnosisComplete(detail) {
+            if (detail && detail.result) {
+                // 添加到历史记录
+                this._addHistory(detail.result);
+                
+                // 清除当前上下文
+                this._clearContext();
+                
+                console.log('[diagnosis_bridge] 诊断完成:', detail.result);
             }
         }
 
         /**
-         * 保存诊断结果到历史
-         * @param {Object} result - 诊断结果
+         * 处理导航到诊断页面事件
+         * @param {Object} detail - 导航详情
          */
-        saveDiagnosisResult(result) {
-            if (!result || !result.diagnosisId) return;
-
-            const stored = localStorage.getItem(CONFIG.RESULT_STORAGE_KEY);
-            const history = stored ? safeParseJSON(stored, []) : [];
-
-            // 添加新结果
-            history.unshift({
-                id: result.diagnosisId,
-                timestamp: Date.now(),
-                summary: result.summary || '诊断结果',
-                query: result.query || (this.context ? this.context.query : ''),
-                result: result
-            });
-
-            // 限制历史记录数量
-            if (history.length > CONFIG.MAX_HISTORY) {
-                history.length = CONFIG.MAX_HISTORY;
+        _handleNavigateToDiagnosis(detail) {
+            if (detail && detail.context) {
+                this._saveContext(detail.context);
             }
-
-            localStorage.setItem(CONFIG.RESULT_STORAGE_KEY, JSON.stringify(history));
-        }
-
-        /**
-         * 显示诊断结果
-         * @param {Object} result - 诊断结果
-         */
-        displayDiagnosisResult(result) {
-            const resultContainer = document.getElementById('diagnosis-result');
-            if (!resultContainer) return;
-
-            // 清空容器
-            resultContainer.innerHTML = '';
-
-            // 创建结果卡片
-            const card = document.createElement('div');
-            card.className = 'diagnosis-result-card';
-            card.style.cssText = 'background:#fff;border-radius:12px;padding:24px;box-shadow:0 2px 12px rgba(0,0,0,0.08);';
-
-            // 标题
-            const title = document.createElement('h3');
-            title.textContent = '📊 诊断结果';
-            title.style.cssText = 'margin:0 0 16px 0;color:#333;font-size:18px;';
-
-            // 诊断ID
-            const idInfo = document.createElement('p');
-            idInfo.textContent = `诊断ID: ${result.diagnosisId}`;
-            idInfo.style.cssText = 'font-size:12px;color:#999;margin:0 0 12px 0;';
-
-            // 摘要
-            if (result.summary) {
-                const summary = document.createElement('div');
-                summary.style.cssText = 'background:#f8f9ff;border-radius:8px;padding:12px;margin-bottom:16px;';
-                summary.innerHTML = `<strong>摘要：</strong>${result.summary}`;
-                card.appendChild(summary);
-            }
-
-            // 详细建议
-            if (result.suggestions && result.suggestions.length > 0) {
-                const suggestionsTitle = document.createElement('h4');
-                suggestionsTitle.textContent = '💡 建议';
-                suggestionsTitle.style.cssText = 'margin:16px 0 8px 0;color:#333;font-size:15px;';
-                card.appendChild(suggestionsTitle);
-
-                const list = document.createElement('ul');
-                list.style.cssText = 'padding-left:20px;margin:0;';
-                result.suggestions.forEach(suggestion => {
-                    const li = document.createElement('li');
-                    li.style.cssText = 'margin-bottom:8px;line-height:1.6;color:#555;';
-                    li.textContent = suggestion;
-                    list.appendChild(li);
-                });
-                card.appendChild(list);
-            }
-
-            // 政策引用
-            if (result.policyReferences && result.policyReferences.length > 0) {
-                const refTitle = document.createElement('h4');
-                refTitle.textContent = '📜 相关政策';
-                refTitle.style.cssText = 'margin:16px 0 8px 0;color:#333;font-size:15px;';
-                card.appendChild(refTitle);
-
-                result.policyReferences.forEach(ref => {
-                    const refLink = document.createElement('a');
-                    refLink.className = CONFIG.UI.POLICY_REFERENCE_CLASS;
-                    refLink.href = '#';
-                    refLink.dataset.policyId = ref.id;
-                    refLink.textContent = ref.title || `政策 #${ref.id}`;
-                    refLink.style.cssText = 'display:block;padding:8px 12px;margin-bottom:4px;background:#f0f4ff;border-radius:6px;color:#667eea;text-decoration:none;font-size:13px;';
-                    refLink.addEventListener('click', (e) => {
-                        e.preventDefault();
-                        this.viewPolicyDetail(ref.id);
-                    });
-                    card.appendChild(refLink);
-                });
-            }
-
-            // 操作按钮
-            const btnGroup = document.createElement('div');
-            btnGroup.style.cssText = 'display:flex;gap:12px;margin-top:20px;';
-
-            const backBtn = document.createElement('button');
-            backBtn.textContent = '返回查询';
-            backBtn.style.cssText = 'padding:10px 24px;border:1px solid #ddd;border-radius:6px;background:#fff;color:#666;cursor:pointer;font-size:14px;';
-            backBtn.addEventListener('click', () => {
-                window.location.href = CONFIG.QUERY_PATH;
-            });
-
-            const reDiagnoseBtn = document.createElement('button');
-            reDiagnoseBtn.textContent = '重新诊断';
-            reDiagnoseBtn.style.cssText = 'padding:10px 24px;border:none;border-radius:6px;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#fff;cursor:pointer;font-size:14px;font-weight:bold;';
-            reDiagnoseBtn.addEventListener('click', () => {
-                this.clearContext();
+            
+            // 执行导航
+            if (detail && detail.url) {
+                window.location.href = detail.url;
+            } else {
                 window.location.href = CONFIG.DIAGNOSIS_PATH;
-            });
-
-            btnGroup.appendChild(backBtn);
-            btnGroup.appendChild(reDiagnoseBtn);
-
-            card.appendChild(title);
-            card.appendChild(idInfo);
-            card.appendChild(btnGroup);
-            resultContainer.appendChild(card);
+            }
         }
 
         /**
-         * 查看政策详情
-         * @param {string} policyId - 政策ID
+         * 处理积分检查事件
+         * @param {Object} detail - 检查详情
          */
-        async viewPolicyDetail(policyId) {
-            showLoading('加载政策详情...');
-
+        async _handleCreditsCheck(detail) {
             try {
-                const response = await fetch(`${CONFIG.API.GET_POLICY}${policyId}`, {
-                    method: 'GET',
-                    headers: {
-                        'Content-Type': 'application/json',
+                const creditsInfo = await this.checkCredits();
+                
+                if (creditsInfo.sufficient) {
+                    // 积分足够，显示确认弹窗
+                    const confirmed = await this._showConfirmModal(creditsInfo);
+                    
+                    if (confirmed) {
+                        // 用户确认，消耗积分并开始诊断
+                        await this.consumeCreditsAndStartDiagnosis(detail.context || this.context);
+                    }
+                } else {
+                    // 积分不足，显示付费引导
+                    this._showPaymentGuide();
+                }
+            } catch (error) {
+                console.error('[diagnosis_bridge] 积分检查处理失败:', error);
+                showError('积分检查处理失败，请稍后重试');
+            }
+        }
+
+        /**
+         * 处理政策引用点击事件
+         * @param {Object} detail - 引用详情
+         */
+        async _handlePolicyReferenceClick(detail) {
+            if (detail && detail.policyId) {
+                try {
+                    // 获取政策原文
+                    const response = await fetch(`${CONFIG.API.GET_POLICY}${detail.policyId}`, {
+                        method: 'GET',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest'
+                        }
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`获取政策原文失败: ${response.status}`);
+                    }
+
+                    const policy = await response.json();
+                    
+                    // 触发政策查看事件
+                    const event = new CustomEvent('policy:view', {
+                        detail: {
+                            policyId: detail.policyId,
+                            policy: policy,
+                            source: 'diagnosis'
+                        }
+                    });
+                    document.dispatchEvent(event);
+                    
+                    // 跳转到政策详情页
+                    window.location.href = `/policy/${detail.policyId}`;
+                } catch (error) {
+                    console.error('[diagnosis_bridge] 获取政策原文失败:', error);
+                    showError('获取政策原文失败，请稍后重试');
+                }
+            }
+        }
+
+        /**
+         * 初始化诊断页面
+         */
+        _initDiagnosisPage() {
+            // 检查是否有上下文
+            if (this.context) {
+                // 显示上下文信息
+                this._showContextBadge();
+                
+                // 自动触发积分检查
+                const event = new CustomEvent(CONFIG.EVENTS.CREDITS_CHECK, {
+                    detail: {
+                        context: this.context
+                    }
+                });
+                document.dispatchEvent(event);
+            } else {
+                // 没有上下文，显示提示
+                console.log('[diagnosis_bridge] 诊断页面无上下文，等待用户输入');
+            }
+        }
+
+        /**
+         * 初始化查询页面
+         */
+        _initQueryPage() {
+            // 添加引导按钮
+            this._addGuideButton();
+            
+            // 检查是否有诊断结果需要回写
+            this._checkForDiagnosisResults();
+        }
+
+        /**
+         * 显示上下文徽章
+         */
+        _showContextBadge() {
+            const badge = document.createElement('div');
+            badge.className = CONFIG.UI.CONTEXT_BADGE_CLASS;
+            badge.innerHTML = `
+                <div class="diagnosis-context-badge-content">
+                    <span class="diagnosis-context-badge-icon">📋</span>
+                    <span class="diagnosis-context-badge-text">
+                        已加载查询上下文：${this.context.query || '未指定'}
+                    </span>
+                    <button class="diagnosis-context-badge-clear" title="清除上下文">&times;</button>
+                </div>
+            `;
+
+            // 插入到页面顶部
+            const container = document.querySelector('.diagnosis-container') || document.body;
+            container.insertBefore(badge, container.firstChild);
+
+            // 绑定清除事件
+            const clearBtn = badge.querySelector('.diagnosis-context-badge-clear');
+            clearBtn.addEventListener('click', () => {
+                this._clearContext();
+                if (badge.parentNode) {
+                    badge.parentNode.removeChild(badge);
+                }
+            });
+        }
+
+        /**
+         * 添加引导按钮
+         */
+        _addGuideButton() {
+            // 检查是否已存在
+            if (document.querySelector(`.${CONFIG.UI.GUIDE_BUTTON_CLASS}`)) {
+                return;
+            }
+
+            const guideBar = document.createElement('div');
+            guideBar.className = CONFIG.UI.GUIDE_BAR_CLASS;
+            guideBar.innerHTML = `
+                <div class="diagnosis-guide-bar-content">
+                    <p class="diagnosis-guide-bar-text">
+                        💡 想要更精准的升学建议？试试智能诊断！
+                    </p>
+                    <button class="${CONFIG.UI.GUIDE_BUTTON_CLASS} diagnosis-btn diagnosis-btn-primary">
+                        开始诊断
+                    </button>
+                </div>
+            `;
+
+            // 插入到查询结果底部
+            const resultsContainer = document.querySelector('.query-results') || document.querySelector('.results-container');
+            if (resultsContainer) {
+                resultsContainer.appendChild(guideBar);
+            } else {
+                document.body.appendChild(guideBar);
+            }
+
+            // 绑定点击事件
+            const guideBtn = guideBar.querySelector(`.${CONFIG.UI.GUIDE_BUTTON_CLASS}`);
+            guideBtn.addEventListener('click', () => {
+                this._handleGuideButtonClick();
+            });
+        }
+
+        /**
+         * 处理引导按钮点击
+         */
+        _handleGuideButtonClick() {
+            // 获取当前查询上下文
+            const queryContext = this._captureQueryContext();
+            
+            if (queryContext) {
+                // 保存上下文
+                this._saveContext(queryContext);
+                
+                // 触发积分检查
+                const event = new CustomEvent(CONFIG.EVENTS.CREDITS_CHECK, {
+                    detail: {
+                        context: queryContext
+                    }
+                });
+                document.dispatchEvent(event);
+            } else {
+                // 没有查询上下文，直接导航到诊断页面
+                window.location.href = CONFIG.DIAGNOSIS_PATH;
+            }
+        }
+
+        /**
+         * 捕获查询上下文
+         * @returns {Object|null} 查询上下文
+         */
+        _captureQueryContext() {
+            try {
+                // 尝试从页面元素获取查询信息
+                const queryInput = document.querySelector('input[name="query"], input[type="search"], .search-input');
+                const query = queryInput ? queryInput.value : '';
+                
+                // 尝试获取政策ID
+                const policyId = new URLSearchParams(window.location.search).get('policy_id');
+                
+                // 尝试获取年级信息
+                const gradeSelect = document.querySelector('select[name="grade"], .grade-select');
+                const grade = gradeSelect ? gradeSelect.value : '';
+                
+                if (!query && !policyId) {
+                    return null;
+                }
+                
+                return {
+                    query: query,
+                    policyId: policyId,
+                    grade: grade,
+                    url: window.location.href,
+                    timestamp: Date.now()
+                };
+            } catch (error) {
+                console.error('[diagnosis_bridge] 捕获查询上下文失败:', error);
+                return null;
+            }
+        }
+
+        /**
+         * 检查是否有诊断结果需要回写
+         */
+        _checkForDiagnosisResults() {
+            // 检查URL参数是否有诊断结果ID
+            const resultId = new URLSearchParams(window.location.search).get('diagnosis_result');
+            if (resultId) {
+                // 查找历史记录中的诊断结果
+                const result = this.diagnosisHistory.find(h => h.id === resultId);
+                if (result) {
+                    // 显示诊断结果提示
+                    showSuccess('诊断结果已加载，请查看');
+                    
+                    // 触发诊断结果回写事件
+                    const event = new CustomEvent(CONFIG.EVENTS.DIAGNOSIS_COMPLETE, {
+                        detail: {
+                            result: result,
+                            fromHistory: true
+                        }
+                    });
+                    document.dispatchEvent(event);
+                }
+            }
+        }
+
+        /**
+         * 获取诊断历史
+         * @returns {Array} 诊断历史列表
+         */
+        getDiagnosisHistory() {
+            return [...this.diagnosisHistory];
+        }
+
+        /**
+         * 清除所有数据
+         */
+        clearAllData() {
+            this._clearContext();
+            this.diagnosisHistory = [];
+            this._saveHistory();
+            this.creditsBalance = 0;
+            console.log('[diagnosis_bridge] 所有数据已清除');
+        }
+    }
+
+    // ============================================================
+    // 导出模块
+    // ============================================================
+
+    // 创建全局实例
+    const diagnosisBridge = new DiagnosisBridge();
+
+    // 暴露到全局
+    window.DiagnosisBridge = diagnosisBridge;
+
+    // DOM加载完成后初始化
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => {
+            diagnosisBridge.init();
+        });
+    } else {
+        diagnosisBridge.init();
+    }
+
+    // 导出模块（支持CommonJS和ES Module）
+    if (typeof module !== 'undefined' && module.exports) {
+        module.exports = DiagnosisBridge;
+    }
+    if (typeof define === 'function' && define.amd) {
+        define([], () => DiagnosisBridge);
+    }
+
+})();

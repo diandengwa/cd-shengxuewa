@@ -107,7 +107,21 @@ WECHAT_PAY_API_KEY = os.getenv("WECHAT_PAY_API_KEY", "")
 WECHAT_PAY_API_V3_KEY = os.getenv("WECHAT_PAY_API_V3_KEY", "")
 
 # ============================================================
-# 应用初始化
+# 积分服务初始化
+# ============================================================
+from app.credits_service import CreditsService
+
+# 检查并创建积分服务实例
+credits_service = None
+try:
+    credits_service = CreditsService()
+    logger.info("[Credits] 积分服务初始化成功")
+except Exception as e:
+    logger.warning(f"[Credits] 积分服务初始化失败: {e}，将使用降级模式")
+    credits_service = None
+
+# ============================================================
+# 应用创建
 # ============================================================
 app = FastAPI(
     title="K12 Rocket v2.0 — 点灯蛙·成都K12升学参谋",
@@ -118,7 +132,14 @@ app = FastAPI(
 )
 
 # ============================================================
-# 中间件配置
+# 限流器
+# ============================================================
+limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# ============================================================
+# 中间件
 # ============================================================
 app.add_middleware(
     CORSMiddleware,
@@ -129,17 +150,11 @@ app.add_middleware(
 )
 
 if K12_ENV == "production":
+    allowed_hosts = os.getenv("K12_ALLOWED_HOSTS", "localhost,127.0.0.1")
     app.add_middleware(
         TrustedHostMiddleware,
-        allowed_hosts=os.getenv("K12_TRUSTED_HOSTS", "localhost,127.0.0.1").split(","),
+        allowed_hosts=[h.strip() for h in allowed_hosts.split(",")],
     )
-
-# ============================================================
-# 速率限制
-# ============================================================
-limiter = Limiter(key_func=get_remote_address)
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # ============================================================
 # 静态文件挂载
@@ -147,31 +162,34 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 static_dir = PROJECT_ROOT / "static"
 if static_dir.exists():
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+    logger.info(f"[Static] 静态文件目录: {static_dir}")
+else:
+    logger.warning(f"[Static] 静态文件目录不存在: {static_dir}")
 
 # ============================================================
 # 注册路由
 # ============================================================
 
-# 微信相关路由（OAuth + 支付回调）
+# 微信相关路由
 app.include_router(wechat_router, prefix="/wechat", tags=["微信"])
 
-# 支付相关路由（下单、查询、回调）
+# 支付相关路由
 app.include_router(payment_router, prefix="/payment", tags=["支付"])
 
-# 积分/配额相关路由
+# 积分相关路由
 app.include_router(credits_router, prefix="/credits", tags=["积分"])
 
 # 政策查询路由
-app.include_router(policy_router, prefix="/policy", tags=["政策"])
+app.include_router(policy_router, prefix="/policy", tags=["政策查询"])
 
 # 学区查询路由
-app.include_router(district_router, prefix="/district", tags=["学区"])
+app.include_router(district_router, prefix="/district", tags=["学区查询"])
 
 # 升学日历路由
-app.include_router(calendar_router, prefix="/calendar", tags=["日历"])
+app.include_router(calendar_router, prefix="/calendar", tags=["升学日历"])
 
 # 升学黑话路由
-app.include_router(jargon_router, prefix="/jargon", tags=["黑话"])
+app.include_router(jargon_router, prefix="/jargon", tags=["升学黑话"])
 
 
 # ============================================================
@@ -185,111 +203,115 @@ async def health_check():
         version="2.0.0",
         timestamp=datetime.now().isoformat(),
         env=K12_ENV,
+        credits_service_available=credits_service is not None,
     )
 
 
 # ============================================================
-# 首页
-# ============================================================
-@app.get("/", response_class=HTMLResponse, tags=["系统"])
-async def index():
-    """返回首页"""
-    index_path = static_dir / "index.html"
-    if index_path.exists():
-        return HTMLResponse(content=index_path.read_text(encoding="utf-8"))
-    return HTMLResponse(content="<h1>K12 Rocket v2.0 — 点灯蛙·成都K12升学参谋</h1><p>系统运行中...</p>")
-
-
-# ============================================================
-# 诊断接口（核心功能）
+# 诊断接口（核心业务）
 # ============================================================
 @app.post("/diagnose", response_model=DiagnosisResult, tags=["诊断"])
 @limiter.limit("10/minute")
 async def diagnose(request: Request, diagnosis_req: DiagnosisRequest):
     """
-    升学诊断接口
-    - 需要微信登录（通过 openid 识别用户）
-    - 每次诊断消耗 1 次配额
+    执行升学诊断
+    - 需要消耗积分（按次计费）
+    - 需要微信登录（通过openid识别用户）
     """
-    # 获取用户 openid（从请求头或 session）
     openid = request.headers.get("X-OpenID", "")
     if not openid:
         raise HTTPException(status_code=401, detail="请先通过微信登录")
 
-    # 检查配额
-    quota_check = await check_quota(openid)
-    if not quota_check["has_quota"]:
-        raise HTTPException(
-            status_code=402,
-            detail={
-                "message": "配额不足，请购买诊断次数",
-                "remaining": quota_check["remaining"],
-                "needs_payment": True,
-            },
-        )
+    # 检查积分
+    if credits_service:
+        has_credits, balance = credits_service.check_and_deduct(openid)
+        if not has_credits:
+            raise HTTPException(
+                status_code=402,
+                detail={
+                    "error": "积分不足",
+                    "balance": balance,
+                    "message": "当前积分不足，请充值后继续使用",
+                },
+            )
+    else:
+        logger.warning("[Credits] 积分服务不可用，跳过积分检查")
 
     # 执行诊断
     try:
-        result = await generate_diagnosis(diagnosis_req)
+        result = generate_diagnosis(diagnosis_req)
         return result
     except Exception as e:
-        logger.error(f"诊断失败: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="诊断服务异常，请稍后重试")
+        logger.error(f"[Diagnose] 诊断失败: {e}")
+        raise HTTPException(status_code=500, detail="诊断服务异常")
 
 
 # ============================================================
 # 黑话翻译接口
 # ============================================================
-@app.post("/translate", response_model=JargonResult, tags=["黑话"])
+@app.post("/translate", response_model=JargonResult, tags=["黑话翻译"])
 @limiter.limit("30/minute")
 async def translate(request: Request, jargon_req: JargonRequest):
-    """升学黑话翻译接口"""
+    """升学黑话翻译"""
     try:
-        result = await translate_jargon(jargon_req.text)
+        result = translate_jargon(jargon_req.text)
         return result
     except Exception as e:
-        logger.error(f"翻译失败: {str(e)}", exc_info=True)
+        logger.error(f"[Translate] 翻译失败: {e}")
         raise HTTPException(status_code=500, detail="翻译服务异常")
 
 
 # ============================================================
 # 反馈接口
 # ============================================================
-@app.post("/feedback", tags=["系统"])
-@limiter.limit("10/minute")
-async def submit_feedback(request: Request, feedback: FeedbackRequest):
-    """用户反馈提交"""
+@app.post("/feedback", tags=["反馈"])
+async def submit_feedback(feedback: FeedbackRequest):
+    """提交用户反馈"""
     try:
-        # 保存反馈到数据库或日志
-        feedback_data = feedback.dict()
-        feedback_data["timestamp"] = datetime.now().isoformat()
-        feedback_data["ip"] = request.client.host
+        # 保存反馈到数据库或文件
+        feedback_dir = PROJECT_ROOT / "data" / "feedback"
+        feedback_dir.mkdir(parents=True, exist_ok=True)
         
-        feedback_file = logs_dir / "feedback.jsonl"
-        with open(feedback_file, "a", encoding="utf-8") as f:
-            f.write(json.dumps(feedback_data, ensure_ascii=False) + "\n")
+        feedback_file = feedback_dir / f"feedback_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        with open(feedback_file, "w", encoding="utf-8") as f:
+            json.dump(feedback.dict(), f, ensure_ascii=False, indent=2)
         
-        logger.info(f"收到用户反馈: {feedback_data}")
+        logger.info(f"[Feedback] 反馈已保存: {feedback_file}")
         return {"status": "ok", "message": "感谢您的反馈！"}
     except Exception as e:
-        logger.error(f"保存反馈失败: {str(e)}", exc_info=True)
+        logger.error(f"[Feedback] 保存反馈失败: {e}")
         raise HTTPException(status_code=500, detail="反馈提交失败")
 
 
 # ============================================================
-# 启动入口
+# 启动事件
+# ============================================================
+@app.on_event("startup")
+async def startup_event():
+    """应用启动时的初始化操作"""
+    logger.info("=" * 60)
+    logger.info("K12 Rocket v2.0 启动中...")
+    logger.info(f"环境: {K12_ENV}")
+    logger.info(f"主机: {K12_HOST}:{K12_PORT}")
+    logger.info(f"积分服务: {'可用' if credits_service else '不可用（降级模式）'}")
+    logger.info(f"微信支付V3: {'已配置' if WECHAT_PAY_API_V3_KEY else '未配置（使用模拟支付）'}")
+    logger.info("=" * 60)
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """应用关闭时的清理操作"""
+    logger.info("K12 Rocket v2.0 正在关闭...")
+
+
+# ============================================================
+# 入口
 # ============================================================
 if __name__ == "__main__":
-    logger.info(f"🚀 K12 Rocket v2.0 启动中...")
-    logger.info(f"  环境: {K12_ENV}")
-    logger.info(f"  地址: http://{K12_HOST}:{K12_PORT}")
-    logger.info(f"  微信支付: {'已配置' if WECHAT_PAY_APPID else '未配置（使用模拟模式）'}")
-    logger.info(f"  文档: http://{K12_HOST}:{K12_PORT}/docs")
-    
     uvicorn.run(
         "app.main:app",
         host=K12_HOST,
         port=K12_PORT,
-        reload=(K12_ENV == "development"),
+        reload=K12_ENV == "development",
         log_level=K12_LOG_LEVEL,
     )

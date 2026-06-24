@@ -132,59 +132,39 @@ def init_db() -> None:
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             school_name TEXT NOT NULL,
             school_type TEXT NOT NULL,
-            district TEXT NOT NULL,
+            district TEXT,
             address TEXT,
-            phone TEXT,
+            contact_phone TEXT,
             website TEXT,
             description TEXT,
-            enrollment_policy TEXT,
-            admission_score REAL,
-            reputation_score REAL,
+            enrollment_scope TEXT,
+            admission_policy TEXT,
             is_active INTEGER NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         )
         """)
         
-        # 8. family_profiles 表 — 家庭档案（含诊断次数配额字段）
+        # 8. diagnosis_prices 表 — 诊断类型价格配置
         cursor.execute("""
-        CREATE TABLE IF NOT EXISTS family_profiles (
+        CREATE TABLE IF NOT EXISTS diagnosis_prices (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            openid TEXT NOT NULL,
-            profile_name TEXT NOT NULL DEFAULT '默认档案',
-            student_name TEXT,
-            student_grade TEXT,
-            school_name TEXT,
-            district TEXT,
-            diagnosis_credits INTEGER NOT NULL DEFAULT 3,
-            used_diagnosis_credits INTEGER NOT NULL DEFAULT 0,
-            purchased_diagnosis_credits INTEGER NOT NULL DEFAULT 0,
-            last_diagnosis_date TEXT,
+            diagnosis_type TEXT NOT NULL UNIQUE,
+            price REAL NOT NULL DEFAULT 0.0,
+            description TEXT,
+            is_active INTEGER NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            FOREIGN KEY (openid) REFERENCES users(openid)
+            updated_at TEXT NOT NULL
         )
         """)
         
-        # 创建索引以提升查询性能
+        # 插入默认诊断价格配置（如果不存在）
         cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_family_profiles_openid 
-        ON family_profiles(openid)
-        """)
-        
-        cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_payment_records_openid 
-        ON payment_records(openid)
-        """)
-        
-        cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_payment_records_status 
-        ON payment_records(status)
-        """)
-        
-        cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_diagnosis_credits_openid 
-        ON diagnosis_credits(openid)
+        INSERT OR IGNORE INTO diagnosis_prices (diagnosis_type, price, description, created_at, updated_at)
+        VALUES 
+            ('basic', 9.90, '基础诊断：学校匹配与政策解读', datetime('now'), datetime('now')),
+            ('advanced', 29.90, '高级诊断：个性化升学方案', datetime('now'), datetime('now')),
+            ('premium', 99.90, '尊享诊断：一对一专家咨询', datetime('now'), datetime('now'))
         """)
         
         conn.commit()
@@ -198,18 +178,170 @@ def init_db() -> None:
         conn.close()
 
 
-def get_user_credits(openid: str) -> Optional[Dict[str, Any]]:
-    """获取用户诊断次数配额信息"""
+def migrate_payment_records() -> None:
+    """
+    迁移 payment_records 表结构
+    用于在已有数据库上添加新字段或修改表结构
+    """
     conn = get_db()
+    cursor = conn.cursor()
+    
     try:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT * FROM diagnosis_credits WHERE openid = ?",
-            (openid,)
-        )
+        # 检查 payment_records 表是否存在
+        cursor.execute("""
+        SELECT name FROM sqlite_master 
+        WHERE type='table' AND name='payment_records'
+        """)
+        
+        if cursor.fetchone():
+            # 检查是否需要添加新字段
+            cursor.execute("PRAGMA table_info(payment_records)")
+            existing_columns = {row[1] for row in cursor.fetchall()}
+            
+            # 需要添加的字段列表
+            columns_to_add = {
+                'diagnosis_count': 'INTEGER NOT NULL DEFAULT 1',
+                'remark': 'TEXT'
+            }
+            
+            for col_name, col_def in columns_to_add.items():
+                if col_name not in existing_columns:
+                    try:
+                        cursor.execute(f"ALTER TABLE payment_records ADD COLUMN {col_name} {col_def}")
+                        logger.info(f"为 payment_records 表添加字段: {col_name}")
+                    except sqlite3.OperationalError as e:
+                        logger.warning(f"添加字段 {col_name} 失败: {e}")
+            
+            conn.commit()
+            logger.info("payment_records 表迁移完成")
+        else:
+            logger.warning("payment_records 表不存在，跳过迁移")
+            
+    except sqlite3.Error as e:
+        logger.error(f"数据库迁移失败: {e}")
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def migrate_diagnosis_credits() -> None:
+    """
+    迁移 diagnosis_credits 表结构
+    用于在已有数据库上添加新字段或修改表结构
+    """
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    try:
+        # 检查 diagnosis_credits 表是否存在
+        cursor.execute("""
+        SELECT name FROM sqlite_master 
+        WHERE type='table' AND name='diagnosis_credits'
+        """)
+        
+        if cursor.fetchone():
+            # 检查是否需要添加新字段
+            cursor.execute("PRAGMA table_info(diagnosis_credits)")
+            existing_columns = {row[1] for row in cursor.fetchall()}
+            
+            # 需要添加的字段列表
+            columns_to_add = {
+                'purchased_credits': 'INTEGER NOT NULL DEFAULT 0',
+                'last_reset_date': 'TEXT'
+            }
+            
+            for col_name, col_def in columns_to_add.items():
+                if col_name not in existing_columns:
+                    try:
+                        cursor.execute(f"ALTER TABLE diagnosis_credits ADD COLUMN {col_name} {col_def}")
+                        logger.info(f"为 diagnosis_credits 表添加字段: {col_name}")
+                    except sqlite3.OperationalError as e:
+                        logger.warning(f"添加字段 {col_name} 失败: {e}")
+            
+            conn.commit()
+            logger.info("diagnosis_credits 表迁移完成")
+        else:
+            logger.warning("diagnosis_credits 表不存在，跳过迁移")
+            
+    except sqlite3.Error as e:
+        logger.error(f"数据库迁移失败: {e}")
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def run_all_migrations() -> None:
+    """执行所有数据库迁移"""
+    logger.info("开始执行数据库迁移...")
+    
+    try:
+        # 先确保表结构存在
+        init_db()
+        
+        # 执行各表迁移
+        migrate_payment_records()
+        migrate_diagnosis_credits()
+        
+        logger.info("所有数据库迁移完成")
+    except Exception as e:
+        logger.error(f"数据库迁移过程出错: {e}")
+        raise
+
+
+def get_diagnosis_prices() -> List[Dict[str, Any]]:
+    """获取诊断类型价格配置"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute("""
+        SELECT diagnosis_type, price, description 
+        FROM diagnosis_prices 
+        WHERE is_active = 1
+        """)
+        
+        prices = []
+        for row in cursor.fetchall():
+            prices.append({
+                'diagnosis_type': row['diagnosis_type'],
+                'price': row['price'],
+                'description': row['description']
+            })
+        
+        return prices
+    except sqlite3.Error as e:
+        logger.error(f"获取诊断价格失败: {e}")
+        return []
+    finally:
+        conn.close()
+
+
+def get_user_credits(openid: str) -> Optional[Dict[str, Any]]:
+    """获取用户诊断次数配额"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute("""
+        SELECT total_credits, used_credits, free_credits, purchased_credits, 
+               last_reset_date, created_at, updated_at
+        FROM diagnosis_credits 
+        WHERE openid = ?
+        """, (openid,))
+        
         row = cursor.fetchone()
         if row:
-            return dict(row)
+            return {
+                'total_credits': row['total_credits'],
+                'used_credits': row['used_credits'],
+                'free_credits': row['free_credits'],
+                'purchased_credits': row['purchased_credits'],
+                'last_reset_date': row['last_reset_date'],
+                'created_at': row['created_at'],
+                'updated_at': row['updated_at']
+            }
         return None
     except sqlite3.Error as e:
         logger.error(f"获取用户配额失败: {e}")
@@ -218,136 +350,70 @@ def get_user_credits(openid: str) -> Optional[Dict[str, Any]]:
         conn.close()
 
 
-def create_user_credits(openid: str, free_credits: int = 3) -> bool:
-    """为新用户创建诊断次数配额记录"""
+def create_or_update_user_credits(openid: str, credits_data: Dict[str, Any]) -> bool:
+    """创建或更新用户诊断次数配额"""
     conn = get_db()
+    cursor = conn.cursor()
+    
     try:
         now = datetime.now().isoformat()
-        cursor = conn.cursor()
+        
         cursor.execute("""
-        INSERT OR IGNORE INTO diagnosis_credits 
-        (openid, total_credits, used_credits, free_credits, purchased_credits, 
-         last_reset_date, created_at, updated_at)
-        VALUES (?, ?, 0, ?, 0, ?, ?, ?)
+        INSERT INTO diagnosis_credits (openid, total_credits, used_credits, free_credits, 
+                                      purchased_credits, last_reset_date, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(openid) DO UPDATE SET
+            total_credits = excluded.total_credits,
+            used_credits = excluded.used_credits,
+            free_credits = excluded.free_credits,
+            purchased_credits = excluded.purchased_credits,
+            last_reset_date = excluded.last_reset_date,
+            updated_at = excluded.updated_at
         """, (
             openid,
-            free_credits,
-            free_credits,
-            now[:10],  # last_reset_date 只取日期部分
+            credits_data.get('total_credits', 3),
+            credits_data.get('used_credits', 0),
+            credits_data.get('free_credits', 3),
+            credits_data.get('purchased_credits', 0),
+            credits_data.get('last_reset_date'),
             now,
             now
         ))
-        conn.commit()
-        return cursor.rowcount > 0
-    except sqlite3.Error as e:
-        logger.error(f"创建用户配额失败: {e}")
-        conn.rollback()
-        return False
-    finally:
-        conn.close()
-
-
-def deduct_diagnosis_credit(openid: str) -> bool:
-    """扣除一次诊断次数，优先使用免费次数"""
-    conn = get_db()
-    try:
-        cursor = conn.cursor()
-        # 先获取当前配额
-        cursor.execute(
-            "SELECT * FROM diagnosis_credits WHERE openid = ?",
-            (openid,)
-        )
-        row = cursor.fetchone()
-        if not row:
-            logger.warning(f"用户 {openid} 无配额记录")
-            return False
-        
-        credits = dict(row)
-        now = datetime.now().isoformat()
-        
-        # 优先使用免费次数
-        if credits['free_credits'] > 0:
-            cursor.execute("""
-            UPDATE diagnosis_credits 
-            SET free_credits = free_credits - 1,
-                used_credits = used_credits + 1,
-                updated_at = ?
-            WHERE openid = ?
-            """, (now, openid))
-        elif credits['purchased_credits'] > 0:
-            cursor.execute("""
-            UPDATE diagnosis_credits 
-            SET purchased_credits = purchased_credits - 1,
-                used_credits = used_credits + 1,
-                updated_at = ?
-            WHERE openid = ?
-            """, (now, openid))
-        else:
-            logger.warning(f"用户 {openid} 无可用的诊断次数")
-            return False
         
         conn.commit()
         return True
     except sqlite3.Error as e:
-        logger.error(f"扣除诊断次数失败: {e}")
+        logger.error(f"更新用户配额失败: {e}")
         conn.rollback()
         return False
     finally:
         conn.close()
 
 
-def add_purchased_credits(openid: str, credits: int) -> bool:
-    """增加用户购买的诊断次数"""
+def create_payment_record(record_data: Dict[str, Any]) -> Optional[int]:
+    """创建支付记录"""
     conn = get_db()
+    cursor = conn.cursor()
+    
     try:
         now = datetime.now().isoformat()
-        cursor = conn.cursor()
+        
         cursor.execute("""
-        UPDATE diagnosis_credits 
-        SET purchased_credits = purchased_credits + ?,
-            total_credits = total_credits + ?,
-            updated_at = ?
-        WHERE openid = ?
-        """, (credits, credits, now, openid))
-        conn.commit()
-        return cursor.rowcount > 0
-    except sqlite3.Error as e:
-        logger.error(f"增加购买次数失败: {e}")
-        conn.rollback()
-        return False
-    finally:
-        conn.close()
-
-
-def create_payment_record(
-    openid: str,
-    diagnosis_type: str,
-    amount: float,
-    diagnosis_count: int = 1,
-    order_id: Optional[str] = None,
-    payment_method: str = 'wechat',
-    remark: Optional[str] = None
-) -> Optional[int]:
-    """创建支付记录，返回记录ID"""
-    conn = get_db()
-    try:
-        now = datetime.now().isoformat()
-        cursor = conn.cursor()
-        cursor.execute("""
-        INSERT INTO payment_records 
-        (openid, order_id, diagnosis_type, diagnosis_count, amount, 
-         payment_method, status, created_at, remark)
-        VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+        INSERT INTO payment_records (openid, order_id, diagnosis_type, diagnosis_count,
+                                    amount, payment_method, status, created_at, remark)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            openid,
-            order_id,
-            diagnosis_type,
-            diagnosis_count,
-            amount,
-            payment_method,
+            record_data['openid'],
+            record_data.get('order_id'),
+            record_data['diagnosis_type'],
+            record_data.get('diagnosis_count', 1),
+            record_data['amount'],
+            record_data.get('payment_method', 'wechat'),
+            record_data.get('status', 'pending'),
             now,
-            remark
+            record_data.get('remark')
         ))
+        
         conn.commit()
         return cursor.lastrowid
     except sqlite3.Error as e:
@@ -358,213 +424,84 @@ def create_payment_record(
         conn.close()
 
 
-def update_payment_status(
-    record_id: int,
-    status: str,
-    paid_at: Optional[str] = None
-) -> bool:
-    """更新支付记录状态"""
+def update_payment_record(record_id: int, update_data: Dict[str, Any]) -> bool:
+    """更新支付记录"""
     conn = get_db()
+    cursor = conn.cursor()
+    
     try:
-        cursor = conn.cursor()
-        if paid_at:
-            cursor.execute("""
-            UPDATE payment_records 
-            SET status = ?, paid_at = ?
-            WHERE id = ?
-            """, (status, paid_at, record_id))
-        else:
-            cursor.execute("""
-            UPDATE payment_records 
-            SET status = ?
-            WHERE id = ?
-            """, (status, record_id))
-        conn.commit()
-        return cursor.rowcount > 0
-    except sqlite3.Error as e:
-        logger.error(f"更新支付状态失败: {e}")
-        conn.rollback()
-        return False
-    finally:
-        conn.close()
-
-
-def get_family_profile(openid: str, profile_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
-    """获取家庭档案信息"""
-    conn = get_db()
-    try:
-        cursor = conn.cursor()
-        if profile_id:
-            cursor.execute(
-                "SELECT * FROM family_profiles WHERE id = ? AND openid = ?",
-                (profile_id, openid)
-            )
-        else:
-            cursor.execute(
-                "SELECT * FROM family_profiles WHERE openid = ? ORDER BY created_at DESC LIMIT 1",
-                (openid,)
-            )
-        row = cursor.fetchone()
-        if row:
-            return dict(row)
-        return None
-    except sqlite3.Error as e:
-        logger.error(f"获取家庭档案失败: {e}")
-        return None
-    finally:
-        conn.close()
-
-
-def create_family_profile(
-    openid: str,
-    profile_name: str = '默认档案',
-    student_name: Optional[str] = None,
-    student_grade: Optional[str] = None,
-    school_name: Optional[str] = None,
-    district: Optional[str] = None
-) -> Optional[int]:
-    """创建家庭档案"""
-    conn = get_db()
-    try:
-        now = datetime.now().isoformat()
-        cursor = conn.cursor()
-        cursor.execute("""
-        INSERT INTO family_profiles 
-        (openid, profile_name, student_name, student_grade, school_name, 
-         district, diagnosis_credits, used_diagnosis_credits, 
-         purchased_diagnosis_credits, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, 3, 0, 0, ?, ?)
-        """, (
-            openid,
-            profile_name,
-            student_name,
-            student_grade,
-            school_name,
-            district,
-            now,
-            now
-        ))
-        conn.commit()
-        return cursor.lastrowid
-    except sqlite3.Error as e:
-        logger.error(f"创建家庭档案失败: {e}")
-        conn.rollback()
-        return None
-    finally:
-        conn.close()
-
-
-def update_family_profile_credits(
-    profile_id: int,
-    diagnosis_credits: int,
-    used_diagnosis_credits: int,
-    purchased_diagnosis_credits: int
-) -> bool:
-    """更新家庭档案的诊断次数信息"""
-    conn = get_db()
-    try:
-        now = datetime.now().isoformat()
-        cursor = conn.cursor()
-        cursor.execute("""
-        UPDATE family_profiles 
-        SET diagnosis_credits = ?,
-            used_diagnosis_credits = ?,
-            purchased_diagnosis_credits = ?,
-            updated_at = ?
+        set_clauses = []
+        params = []
+        
+        for key, value in update_data.items():
+            if key in ('status', 'paid_at', 'remark', 'order_id'):
+                set_clauses.append(f"{key} = ?")
+                params.append(value)
+        
+        if not set_clauses:
+            return False
+        
+        set_clauses.append("updated_at = ?")
+        params.append(datetime.now().isoformat())
+        params.append(record_id)
+        
+        cursor.execute(f"""
+        UPDATE payment_records 
+        SET {', '.join(set_clauses)}
         WHERE id = ?
-        """, (
-            diagnosis_credits,
-            used_diagnosis_credits,
-            purchased_diagnosis_credits,
-            now,
-            profile_id
-        ))
+        """, params)
+        
         conn.commit()
         return cursor.rowcount > 0
     except sqlite3.Error as e:
-        logger.error(f"更新档案诊断次数失败: {e}")
+        logger.error(f"更新支付记录失败: {e}")
         conn.rollback()
         return False
     finally:
         conn.close()
 
 
-def get_user_payment_history(
-    openid: str,
-    limit: int = 10,
-    offset: int = 0
-) -> List[Dict[str, Any]]:
-    """获取用户支付历史记录"""
+def get_user_payment_records(openid: str, limit: int = 10) -> List[Dict[str, Any]]:
+    """获取用户支付记录"""
     conn = get_db()
+    cursor = conn.cursor()
+    
     try:
-        cursor = conn.cursor()
         cursor.execute("""
-        SELECT * FROM payment_records 
-        WHERE openid = ? 
-        ORDER BY created_at DESC 
-        LIMIT ? OFFSET ?
-        """, (openid, limit, offset))
-        rows = cursor.fetchall()
-        return [dict(row) for row in rows]
+        SELECT id, openid, order_id, diagnosis_type, diagnosis_count,
+               amount, payment_method, status, created_at, paid_at, remark
+        FROM payment_records 
+        WHERE openid = ?
+        ORDER BY created_at DESC
+        LIMIT ?
+        """, (openid, limit))
+        
+        records = []
+        for row in cursor.fetchall():
+            records.append({
+                'id': row['id'],
+                'openid': row['openid'],
+                'order_id': row['order_id'],
+                'diagnosis_type': row['diagnosis_type'],
+                'diagnosis_count': row['diagnosis_count'],
+                'amount': row['amount'],
+                'payment_method': row['payment_method'],
+                'status': row['status'],
+                'created_at': row['created_at'],
+                'paid_at': row['paid_at'],
+                'remark': row['remark']
+            })
+        
+        return records
     except sqlite3.Error as e:
-        logger.error(f"获取支付历史失败: {e}")
+        logger.error(f"获取用户支付记录失败: {e}")
         return []
     finally:
         conn.close()
 
 
-def check_diagnosis_availability(openid: str) -> Tuple[bool, int]:
-    """检查用户是否还有可用的诊断次数，返回(是否可用, 剩余次数)"""
-    conn = get_db()
-    try:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT free_credits, purchased_credits FROM diagnosis_credits WHERE openid = ?",
-            (openid,)
-        )
-        row = cursor.fetchone()
-        if not row:
-            # 新用户，创建默认配额
-            create_user_credits(openid)
-            return True, 3
-        
-        remaining = row['free_credits'] + row['purchased_credits']
-        return remaining > 0, remaining
-    except sqlite3.Error as e:
-        logger.error(f"检查诊断可用性失败: {e}")
-        return False, 0
-    finally:
-        conn.close()
-
-
-def reset_free_credits() -> int:
-    """重置所有用户的免费诊断次数（每月1号执行）"""
-    conn = get_db()
-    try:
-        now = datetime.now().isoformat()
-        today = now[:10]
-        cursor = conn.cursor()
-        cursor.execute("""
-        UPDATE diagnosis_credits 
-        SET free_credits = 3,
-            last_reset_date = ?,
-            updated_at = ?
-        WHERE last_reset_date < ? OR last_reset_date IS NULL
-        """, (today, now, today))
-        conn.commit()
-        reset_count = cursor.rowcount
-        logger.info(f"已重置 {reset_count} 个用户的免费诊断次数")
-        return reset_count
-    except sqlite3.Error as e:
-        logger.error(f"重置免费次数失败: {e}")
-        conn.rollback()
-        return 0
-    finally:
-        conn.close()
-
-
 if __name__ == "__main__":
-    # 初始化数据库
+    # 直接运行此文件时执行数据库初始化和迁移
     logging.basicConfig(level=logging.INFO)
-    init_db()
-    print("数据库初始化完成！")
+    run_all_migrations()
+    print("数据库初始化和迁移完成")
