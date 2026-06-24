@@ -188,7 +188,7 @@ themes:
       border_left: "4px solid #5dade2"
       padding: "12px 16px"
       margin: "16px 0"
-      color: "#b0b0b0"
+      color: "#cccccc"
       font_size: 15px
       border_radius: 4px
     
@@ -220,7 +220,7 @@ themes:
     link:
       color: "#5dade2"
       text_decoration: none
-      hover_color: "#85c1e9"
+      hover_color: "#3498db"
     
     image:
       max_width: "100%"
@@ -245,7 +245,7 @@ themes:
         padding: "8px 12px"
         border: "1px solid #444444"
       stripe:
-        even_row_background: "#2d2d2d"
+        even_row_background: "#2a2a2a"
         odd_row_background: "#1e1e1e"
     
     hr:
@@ -258,8 +258,8 @@ themes:
       weight: bold
     
     mark:
-      background: "#5b4a1e"
-      color: "#ffe484"
+      background: "#664b00"
+      color: "#ffd700"
       padding: "2px 4px"
       border_radius: 2px
     
@@ -270,157 +270,34 @@ themes:
       border_top: "1px solid #444444"
       padding_top: 12px
 
-  # 简约主题 - 极简风格
-  minimal:
-    display_name: "简约极简"
-    description: "去除多余装饰，仅保留核心排版元素，适合正式内容"
-    
-    font:
-      family: "'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif"
-      size: 15px
-      line_height: 1.8
-      color: "#444444"
-      letter_spacing: 0.3px
-    
-    heading:
-      h1:
-        size: 20px
-        color: "#222222"
-        weight: bold
-        margin_top: 20px
-        margin_bottom: 10px
-      h2:
-        size: 18px
-        color: "#333333"
-        weight: bold
-        margin_top: 16px
-        margin_bottom: 8px
-      h3:
-        size: 16px
-        color: "#444444"
-        weight: 600
-        margin_top: 12px
-        margin_bottom: 6px
-    
-    paragraph:
-      margin_bottom: 14px
-      text_indent: 0em  # 极简风格不缩进
-    
-    blockquote:
-      background: "#fafafa"
-      border_left: "3px solid #cccccc"
-      padding: "10px 14px"
-      margin: "14px 0"
-      color: "#666666"
-      font_size: 14px
-      border_radius: 0px
-    
-    code_block:
-      background: "#f8f8f8"
-      color: "#333333"
-      font_family: "'Consolas', 'Monaco', monospace"
-      font_size: 13px
-      line_height: 1.5
-      padding: "12px 16px"
-      border_radius: 0px
-      margin: "14px 0"
-      overflow_x: auto
-    
-    inline_code:
-      background: "#f0f0f0"
-      color: "#c0392b"
-      padding: "1px 4px"
-      border_radius: 2px
-      font_size: 13px
-      font_family: "'Consolas', 'Monaco', monospace"
-    
-    list:
-      margin_bottom: 10px
-      padding_left: 20px
-      item_margin_bottom: 4px
-      bullet_color: "#999999"
-    
-    link:
-      color: "#2c3e50"
-      text_decoration: underline
-      hover_color: "#1a252f"
-    
-    image:
-      max_width: "100%"
-      border_radius: 0px
-      margin: "14px 0"
-      caption:
-        font_size: 12px
-        color: "#aaaaaa"
-        text_align: center
-        margin_top: 6px
-    
-    table:
-      border_collapse: collapse
-      width: "100%"
-      margin: "14px 0"
-      header:
-        background: "#f5f5f5"
-        color: "#333333"
-        weight: bold
-        padding: "8px 10px"
-      cell:
-        padding: "6px 10px"
-        border: "1px solid #e0e0e0"
-      stripe:
-        even_row_background: "#fafafa"
-        odd_row_background: "#ffffff"
-    
-    hr:
-      border: "none"
-      border_top: "1px solid #e8e8e8"
-      margin: "20px 0"
-    
-    strong:
-      color: "#222222"
-      weight: bold
-    
-    mark:
-      background: "#fcf8e3"
-      color: "#8a6d3b"
-      padding: "1px 3px"
-      border_radius: 1px
-    
-    footnote:
-      font_size: 12px
-      color: "#aaaaaa"
-      margin_top: 20px
-      border_top: "1px solid #e8e8e8"
-      padding_top: 10px
-
-  # 温暖主题 - 暖色调风格
-  warm:
-    display_name: "温暖柔和"
-    description: "暖色调背景，适合情感类、亲子类文章"
+  # 教育主题 - 适合升学类文章
+  education:
+    display_name: "教育升学"
+    description: "适合K12升学类文章，蓝色主调，专业稳重"
     
     font:
       family: "'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif"
       size: 16px
-      line_height: 1.8
-      color: "#5a4a3a"
-      letter_spacing: 0.8px
+      line_height: 1.75
+      color: "#2c3e50"
+      letter_spacing: 0.5px
     
     heading:
       h1:
         size: 22px
-        color: "#8b4513"
+        color: "#1a5276"
         weight: bold
         margin_top: 24px
         margin_bottom: 12px
       h2:
         size: 20px
-        color: "#a0522d"
+        color: "#2471a3"
         weight: bold
         margin_top: 20px
         margin_bottom: 10px
       h3:
         size: 18px
-        color: "#b5651d"
+        color: "#2e86c1"
         weight: 600
         margin_top: 16px
         margin_bottom: 8px
@@ -430,17 +307,17 @@ themes:
       text_indent: 2em
     
     blockquote:
-      background: "#fdf6e3"
-      border_left: "4px solid #d4a574"
+      background: "#eaf2f8"
+      border_left: "4px solid #2980b9"
       padding: "12px 16px"
       margin: "16px 0"
-      color: "#6b5b4b"
+      color: "#1a5276"
       font_size: 15px
       border_radius: 4px
     
     code_block:
-      background: "#faf0e6"
-      color: "#5a4a3a"
+      background: "#1b2631"
+      color: "#d5dbdb"
       font_family: "'Fira Code', 'Consolas', 'Monaco', monospace"
       font_size: 14px
       line_height: 1.6
@@ -450,7 +327,7 @@ themes:
       overflow_x: auto
     
     inline_code:
-      background: "#f5e6d3"
+      background: "#eaf2f8"
       color: "#c0392b"
       padding: "2px 6px"
       border_radius: 3px
@@ -461,12 +338,12 @@ themes:
       margin_bottom: 12px
       padding_left: 24px
       item_margin_bottom: 6px
-      bullet_color: "#d4a574"
+      bullet_color: "#2980b9"
     
     link:
-      color: "#8b4513"
+      color: "#1a5276"
       text_decoration: none
-      hover_color: "#a0522d"
+      hover_color: "#154360"
     
     image:
       max_width: "100%"
@@ -474,7 +351,7 @@ themes:
       margin: "16px 0"
       caption:
         font_size: 13px
-        color: "#a08060"
+        color: "#7f8c8d"
         text_align: center
         margin_top: 8px
     
@@ -483,35 +360,158 @@ themes:
       width: "100%"
       margin: "16px 0"
       header:
-        background: "#fdf6e3"
-        color: "#5a4a3a"
+        background: "#d4e6f1"
+        color: "#1a5276"
         weight: bold
         padding: "10px 12px"
       cell:
         padding: "8px 12px"
-        border: "1px solid #e8d5c0"
+        border: "1px solid #aed6f1"
       stripe:
-        even_row_background: "#fdf6e3"
-        odd_row_background: "#fffaf0"
+        even_row_background: "#eaf2f8"
+        odd_row_background: "#ffffff"
     
     hr:
       border: "none"
-      border_top: "1px solid #e8d5c0"
+      border_top: "1px solid #aed6f1"
       margin: "24px 0"
     
     strong:
-      color: "#8b4513"
+      color: "#1a5276"
       weight: bold
     
     mark:
-      background: "#fce4b8"
-      color: "#8a6d3b"
+      background: "#fef9e7"
+      color: "#7d6608"
       padding: "2px 4px"
       border_radius: 2px
     
     footnote:
       font_size: 13px
-      color: "#a08060"
+      color: "#7f8c8d"
       margin_top: 24px
-      border_top: "1px solid #e8d5c0"
+      border_top: "1px solid #aed6f1"
       padding_top: 12px
+
+  # 简洁主题 - 极简风格
+  minimal:
+    display_name: "极简风格"
+    description: "适合短篇通知，去除多余装饰，重点突出"
+    
+    font:
+      family: "'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif"
+      size: 15px
+      line_height: 1.6
+      color: "#444444"
+      letter_spacing: 0.3px
+    
+    heading:
+      h1:
+        size: 20px
+        color: "#222222"
+        weight: 600
+        margin_top: 20px
+        margin_bottom: 10px
+      h2:
+        size: 18px
+        color: "#333333"
+        weight: 600
+        margin_top: 16px
+        margin_bottom: 8px
+      h3:
+        size: 16px
+        color: "#444444"
+        weight: 600
+        margin_top: 12px
+        margin_bottom: 6px
+    
+    paragraph:
+      margin_bottom: 12px
+      text_indent: 0
+    
+    blockquote:
+      background: "#f9f9f9"
+      border_left: "3px solid #cccccc"
+      padding: "10px 14px"
+      margin: "12px 0"
+      color: "#666666"
+      font_size: 14px
+      border_radius: 0
+    
+    code_block:
+      background: "#f5f5f5"
+      color: "#333333"
+      font_family: "'Consolas', 'Monaco', monospace"
+      font_size: 13px
+      line_height: 1.5
+      padding: "12px 16px"
+      border_radius: 0
+      margin: "12px 0"
+      overflow_x: auto
+    
+    inline_code:
+      background: "#f5f5f5"
+      color: "#c0392b"
+      padding: "1px 4px"
+      border_radius: 0
+      font_size: 13px
+      font_family: "'Consolas', 'Monaco', monospace"
+    
+    list:
+      margin_bottom: 10px
+      padding_left: 20px
+      item_margin_bottom: 4px
+      bullet_color: "#999999"
+    
+    link:
+      color: "#2980b9"
+      text_decoration: underline
+      hover_color: "#1a5276"
+    
+    image:
+      max_width: "100%"
+      border_radius: 0
+      margin: "12px 0"
+      caption:
+        font_size: 12px
+        color: "#aaaaaa"
+        text_align: center
+        margin_top: 6px
+    
+    table:
+      border_collapse: collapse
+      width: "100%"
+      margin: "12px 0"
+      header:
+        background: "#f5f5f5"
+        color: "#333333"
+        weight: 600
+        padding: "8px 10px"
+      cell:
+        padding: "6px 10px"
+        border: "1px solid #e0e0e0"
+      stripe:
+        even_row_background: "#fafafa"
+        odd_row_background: "#ffffff"
+    
+    hr:
+      border: "none"
+      border_top: "1px solid #eeeeee"
+      margin: "20px 0"
+    
+    strong:
+      color: "#222222"
+      weight: 600
+    
+    mark:
+      background: "#fff9c4"
+      color: "#666666"
+      padding: "1px 3px"
+      border_radius: 0
+    
+    footnote:
+      font_size: 12px
+      color: "#aaaaaa"
+      margin_top: 20px
+      border_top: "1px solid #eeeeee"
+      padding_top: 10px
