@@ -243,23 +243,23 @@ themes:
         padding: "10px 12px"
       cell:
         padding: "8px 12px"
-        border: "1px solid #404040"
+        border: "1px solid #444444"
       stripe:
-        even_row_background: "#2a2a2a"
-        odd_row_background: "#252525"
+        even_row_background: "#2d2d2d"
+        odd_row_background: "#1e1e1e"
     
     hr:
       border: "none"
-      border_top: "1px solid #404040"
+      border_top: "1px solid #444444"
       margin: "24px 0"
     
     strong:
-      color: "#ffffff"
+      color: "#e8e8e8"
       weight: bold
     
     mark:
-      background: "#5c4a00"
-      color: "#ffd700"
+      background: "#5b4a1e"
+      color: "#ffe484"
       padding: "2px 4px"
       border_radius: 2px
     
@@ -267,37 +267,160 @@ themes:
       font_size: 13px
       color: "#888888"
       margin_top: 24px
-      border_top: "1px solid #404040"
+      border_top: "1px solid #444444"
       padding_top: 12px
+
+  # 简约主题 - 极简风格
+  minimal:
+    display_name: "简约极简"
+    description: "去除多余装饰，仅保留核心排版元素，适合正式内容"
+    
+    font:
+      family: "'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif"
+      size: 15px
+      line_height: 1.8
+      color: "#444444"
+      letter_spacing: 0.3px
+    
+    heading:
+      h1:
+        size: 20px
+        color: "#222222"
+        weight: bold
+        margin_top: 20px
+        margin_bottom: 10px
+      h2:
+        size: 18px
+        color: "#333333"
+        weight: bold
+        margin_top: 16px
+        margin_bottom: 8px
+      h3:
+        size: 16px
+        color: "#444444"
+        weight: 600
+        margin_top: 12px
+        margin_bottom: 6px
+    
+    paragraph:
+      margin_bottom: 14px
+      text_indent: 0em  # 极简风格不缩进
+    
+    blockquote:
+      background: "#fafafa"
+      border_left: "3px solid #cccccc"
+      padding: "10px 14px"
+      margin: "14px 0"
+      color: "#666666"
+      font_size: 14px
+      border_radius: 0px
+    
+    code_block:
+      background: "#f8f8f8"
+      color: "#333333"
+      font_family: "'Consolas', 'Monaco', monospace"
+      font_size: 13px
+      line_height: 1.5
+      padding: "12px 16px"
+      border_radius: 0px
+      margin: "14px 0"
+      overflow_x: auto
+    
+    inline_code:
+      background: "#f0f0f0"
+      color: "#c0392b"
+      padding: "1px 4px"
+      border_radius: 2px
+      font_size: 13px
+      font_family: "'Consolas', 'Monaco', monospace"
+    
+    list:
+      margin_bottom: 10px
+      padding_left: 20px
+      item_margin_bottom: 4px
+      bullet_color: "#999999"
+    
+    link:
+      color: "#2c3e50"
+      text_decoration: underline
+      hover_color: "#1a252f"
+    
+    image:
+      max_width: "100%"
+      border_radius: 0px
+      margin: "14px 0"
+      caption:
+        font_size: 12px
+        color: "#aaaaaa"
+        text_align: center
+        margin_top: 6px
+    
+    table:
+      border_collapse: collapse
+      width: "100%"
+      margin: "14px 0"
+      header:
+        background: "#f5f5f5"
+        color: "#333333"
+        weight: bold
+        padding: "8px 10px"
+      cell:
+        padding: "6px 10px"
+        border: "1px solid #e0e0e0"
+      stripe:
+        even_row_background: "#fafafa"
+        odd_row_background: "#ffffff"
+    
+    hr:
+      border: "none"
+      border_top: "1px solid #e8e8e8"
+      margin: "20px 0"
+    
+    strong:
+      color: "#222222"
+      weight: bold
+    
+    mark:
+      background: "#fcf8e3"
+      color: "#8a6d3b"
+      padding: "1px 3px"
+      border_radius: 1px
+    
+    footnote:
+      font_size: 12px
+      color: "#aaaaaa"
+      margin_top: 20px
+      border_top: "1px solid #e8e8e8"
+      padding_top: 10px
 
   # 温暖主题 - 暖色调风格
   warm:
-    display_name: "温暖橙黄"
-    description: "暖色调排版，适合教育类、亲子类文章"
+    display_name: "温暖柔和"
+    description: "暖色调背景，适合情感类、亲子类文章"
     
     font:
       family: "'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif"
       size: 16px
-      line_height: 1.75
-      color: "#4a3728"
-      letter_spacing: 0.5px
+      line_height: 1.8
+      color: "#5a4a3a"
+      letter_spacing: 0.8px
     
     heading:
       h1:
         size: 22px
-        color: "#d35400"
+        color: "#8b4513"
         weight: bold
         margin_top: 24px
         margin_bottom: 12px
       h2:
         size: 20px
-        color: "#e67e22"
+        color: "#a0522d"
         weight: bold
         margin_top: 20px
         margin_bottom: 10px
       h3:
         size: 18px
-        color: "#f39c12"
+        color: "#b5651d"
         weight: 600
         margin_top: 16px
         margin_bottom: 8px
@@ -307,17 +430,17 @@ themes:
       text_indent: 2em
     
     blockquote:
-      background: "#fef5e7"
-      border_left: "4px solid #e67e22"
+      background: "#fdf6e3"
+      border_left: "4px solid #d4a574"
       padding: "12px 16px"
       margin: "16px 0"
-      color: "#6b5b4a"
+      color: "#6b5b4b"
       font_size: 15px
       border_radius: 4px
     
     code_block:
-      background: "#2c3e50"
-      color: "#ecf0f1"
+      background: "#faf0e6"
+      color: "#5a4a3a"
       font_family: "'Fira Code', 'Consolas', 'Monaco', monospace"
       font_size: 14px
       line_height: 1.6
@@ -327,7 +450,7 @@ themes:
       overflow_x: auto
     
     inline_code:
-      background: "#fdf2e9"
+      background: "#f5e6d3"
       color: "#c0392b"
       padding: "2px 6px"
       border_radius: 3px
@@ -338,12 +461,12 @@ themes:
       margin_bottom: 12px
       padding_left: 24px
       item_margin_bottom: 6px
-      bullet_color: "#e67e22"
+      bullet_color: "#d4a574"
     
     link:
-      color: "#d35400"
+      color: "#8b4513"
       text_decoration: none
-      hover_color: "#a04000"
+      hover_color: "#a0522d"
     
     image:
       max_width: "100%"
@@ -360,16 +483,16 @@ themes:
       width: "100%"
       margin: "16px 0"
       header:
-        background: "#fef5e7"
-        color: "#4a3728"
+        background: "#fdf6e3"
+        color: "#5a4a3a"
         weight: bold
         padding: "10px 12px"
       cell:
         padding: "8px 12px"
         border: "1px solid #e8d5c0"
       stripe:
-        even_row_background: "#fef9f0"
-        odd_row_background: "#ffffff"
+        even_row_background: "#fdf6e3"
+        odd_row_background: "#fffaf0"
     
     hr:
       border: "none"
@@ -377,12 +500,12 @@ themes:
       margin: "24px 0"
     
     strong:
-      color: "#d35400"
+      color: "#8b4513"
       weight: bold
     
     mark:
-      background: "#fef5e7"
-      color: "#d35400"
+      background: "#fce4b8"
+      color: "#8a6d3b"
       padding: "2px 4px"
       border_radius: 2px
     
@@ -392,69 +515,3 @@ themes:
       margin_top: 24px
       border_top: "1px solid #e8d5c0"
       padding_top: 12px
-
-# 微信公众号特殊适配参数
-wechat_platform:
-  # 微信图文消息最大宽度（像素）
-  max_content_width: 677
-  
-  # 微信支持的字体大小范围（px）
-  font_size_range:
-    min: 14
-    max: 18
-    default: 16
-  
-  # 微信支持的字体颜色（十六进制）
-  color_palette:
-    - "#333333"  # 正文
-    - "#666666"  # 次要文字
-    - "#999999"  # 辅助文字
-    - "#1a1a1a"  # 标题
-    - "#3498db"  # 链接/强调色
-    - "#e74c3c"  # 警告/错误
-    - "#27ae60"  # 成功/正确
-    - "#f39c12"  # 提醒/注意
-  
-  # 微信图文消息中的图片限制
-  image_limits:
-    max_size_mb: 10
-    supported_formats: ["jpg", "jpeg", "png", "gif"]
-    max_count_per_article: 50
-  
-  # 微信图文消息中的代码块适配
-  code_block_wechat:
-    # 微信不支持自定义代码块样式，使用预格式化文本
-    use_pre_tag: true
-    # 是否添加行号
-    show_line_numbers: false
-    # 是否启用代码高亮（微信不支持，但保留标记）
-    enable_highlight: false
-
-# 排版引擎配置
-engine_config:
-  # 是否启用自动首行缩进
-  auto_indent: true
-  
-  # 是否启用自动段落间距
-  auto_paragraph_spacing: true
-  
-  # 是否启用智能引号替换
-  smart_quotes: true
-  
-  # 是否启用中文标点修正
-  chinese_punctuation_fix: true
-  
-  # 是否启用自动生成目录
-  auto_toc: false
-  
-  # 是否启用脚注自动编号
-  auto_footnote_numbering: true
-  
-  # 输出格式选项
-  output:
-    # 是否压缩HTML（移除多余空白）
-    minify_html: false
-    # 是否添加微信兼容性注释
-    add_wechat_comments: true
-    # 编码方式
-    encoding: "utf-8"

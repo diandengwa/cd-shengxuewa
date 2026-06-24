@@ -165,15 +165,15 @@ def upload_draft(
             else:
                 error_msg = result.get('errmsg', '未知错误')
                 error_code = result.get('errcode', -1)
-                logger.error(f"草稿箱上传失败 [错误码: {error_code}]: {error_msg}")
+                logger.error(f"草稿箱上传失败 [错误码:{error_code}]: {error_msg}")
                 raise Exception(f"草稿箱上传失败: {error_msg}")
                 
     except httpx.TimeoutException:
         logger.error("请求微信API超时")
         raise Exception("请求微信API超时，请检查网络连接")
-    except httpx.RequestError as e:
-        logger.error(f"请求微信API失败: {e}")
-        raise Exception(f"请求微信API失败: {e}")
+    except httpx.HTTPStatusError as e:
+        logger.error(f"HTTP请求失败: {e}")
+        raise Exception(f"HTTP请求失败: {e}")
     except Exception as e:
         logger.error(f"草稿箱上传异常: {e}")
         raise
@@ -182,21 +182,50 @@ def upload_draft(
 def main():
     """
     命令行入口函数
-    支持从命令行参数或环境变量读取配置
+    支持通过命令行参数或环境变量配置上传参数
     """
     import argparse
     
-    parser = argparse.ArgumentParser(description="微信公众号草稿箱上传工具")
-    parser.add_argument("--html", required=True, help="HTML文件路径")
-    parser.add_argument("--title", required=True, help="文章标题")
-    parser.add_argument("--cover", help="封面图片路径（可选）")
-    parser.add_argument("--author", default="成都K12升学参谋", help="作者名称")
-    parser.add_argument("--digest", help="文章摘要（可选）")
-    parser.add_argument("--source-url", help="原文链接（可选）")
-    parser.add_argument("--open-comment", type=int, default=0, choices=[0, 1], help="是否打开评论（0不打开，1打开）")
-    parser.add_argument("--fans-only-comment", type=int, default=0, choices=[0, 1], help="是否仅粉丝可评论（0所有人，1粉丝）")
+    parser = argparse.ArgumentParser(
+        description="微信公众号草稿箱上传工具",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+使用示例:
+  # 基本用法
+  python scripts/upload_draft.py --html ./output/article.html --title "文章标题"
+  
+  # 完整参数
+  python scripts/upload_draft.py \\
+    --html ./output/article.html \\
+    --title "文章标题" \\
+    --cover ./images/cover.jpg \\
+    --author "成都K12升学参谋" \\
+    --digest "文章摘要" \\
+    --source-url "https://example.com/article" \\
+    --enable-comment
+        """
+    )
+    
+    parser.add_argument('--html', required=True, help='HTML文件路径')
+    parser.add_argument('--title', required=True, help='文章标题')
+    parser.add_argument('--cover', help='封面图片路径')
+    parser.add_argument('--author', default='成都K12升学参谋', help='作者名称')
+    parser.add_argument('--digest', help='文章摘要')
+    parser.add_argument('--source-url', help='原文链接')
+    parser.add_argument('--enable-comment', action='store_true', help='启用评论')
+    parser.add_argument('--fans-only-comment', action='store_true', help='仅粉丝可评论')
     
     args = parser.parse_args()
+    
+    # 检查HTML文件是否存在
+    if not os.path.exists(args.html):
+        logger.error(f"HTML文件不存在: {args.html}")
+        sys.exit(1)
+    
+    # 检查封面图片是否存在（如果指定了）
+    if args.cover and not os.path.exists(args.cover):
+        logger.warning(f"封面图片不存在: {args.cover}，将跳过封面上传")
+        args.cover = None
     
     try:
         # 执行上传
@@ -207,24 +236,23 @@ def main():
             author=args.author,
             digest=args.digest,
             content_source_url=args.source_url,
-            need_open_comment=args.open_comment,
-            only_fans_can_comment=args.fans_only_comment
+            need_open_comment=1 if args.enable_comment else 0,
+            only_fans_can_comment=1 if args.fans_only_comment else 0
         )
         
-        # 输出结果（JSON格式，便于其他程序调用）
+        # 输出结果
         result = {
             "success": True,
             "media_id": media_id,
-            "message": "草稿箱上传成功"
+            "title": args.title
         }
         print(json.dumps(result, ensure_ascii=False, indent=2))
         
     except Exception as e:
-        # 输出错误结果
+        logger.error(f"上传失败: {e}")
         result = {
             "success": False,
-            "media_id": None,
-            "message": str(e)
+            "error": str(e)
         }
         print(json.dumps(result, ensure_ascii=False, indent=2))
         sys.exit(1)
