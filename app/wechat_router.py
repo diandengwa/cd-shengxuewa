@@ -1,6 +1,6 @@
 """
 微信路由 v2.0
-OAuth + 消息推送 + 配额中间件集成
+OAuth + 消息推送 + 配额中间件集成 + 微信支付回调
 """
 
 import time
@@ -8,6 +8,8 @@ import json
 import logging
 import secrets
 import hashlib
+import hmac
+import xml.etree.ElementTree as ET
 from fastapi import APIRouter, Query, Request, Response, HTTPException
 from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse
 
@@ -16,6 +18,10 @@ from .wechat import (
     register_or_get_user, get_user_quota, increment_user_quota,
 )
 from .quota import check_quota, get_or_create_user, update_user, update_family_info
+from .payment import (
+    verify_payment_signature, process_payment_notification,
+    get_payment_config, PAYMENT_SUCCESS, PAYMENT_FAILED
+)
 
 logger = logging.getLogger("k12_rocket.wechat_router")
 
@@ -133,37 +139,126 @@ async def get_quota(uid: str = Query(..., description="用户hash")):
 
 
 # ============================================================
-# 用户画像 API
+# 微信支付回调
 # ============================================================
 
-@router.post("/profile")
-async def update_profile(request: Request):
-    """更新用户家庭画像"""
+@router.post("/payment/callback")
+async def wechat_payment_callback(request: Request):
+    """
+    微信支付结果通知回调
+    接收微信服务器异步通知，处理支付结果
+    """
     try:
-        body = await request.json()
-        openid = body.get("openid", "")
-        if not openid:
-            raise HTTPException(status_code=400, detail="需要openid")
-
-        # 鉴权校验：防篡改他人画像
-        k12_uid = request.cookies.get("k12_uid")
-        if not k12_uid:
-            raise HTTPException(status_code=401, detail="未登录或Cookie已失效")
+        # 获取原始请求体（XML格式）
+        body = await request.body()
+        xml_data = body.decode('utf-8')
+        
+        logger.info(f"收到微信支付回调: {xml_data[:200]}...")
+        
+        # 解析XML
+        root = ET.fromstring(xml_data)
+        
+        # 提取关键字段
+        return_code = root.find('return_code').text if root.find('return_code') is not None else ''
+        result_code = root.find('result_code').text if root.find('result_code') is not None else ''
+        
+        # 验证签名
+        if not verify_payment_signature(xml_data):
+            logger.warning("支付回调签名验证失败")
+            return Response(
+                content='<xml><return_code><![CDATA[FAIL]]></return_code><return_msg><![CDATA[签名失败]]></return_msg></xml>',
+                media_type='application/xml'
+            )
+        
+        # 处理支付结果
+        if return_code == 'SUCCESS' and result_code == 'SUCCESS':
+            # 支付成功，处理业务逻辑
+            openid = root.find('openid').text if root.find('openid') is not None else ''
+            transaction_id = root.find('transaction_id').text if root.find('transaction_id') is not None else ''
+            out_trade_no = root.find('out_trade_no').text if root.find('out_trade_no') is not None else ''
+            total_fee = int(root.find('total_fee').text) if root.find('total_fee') is not None else 0
+            time_end = root.find('time_end').text if root.find('time_end') is not None else ''
             
-        import hashlib
-        expected_hash = hashlib.sha256(openid.encode()).hexdigest()[:16]
-        if k12_uid != expected_hash:
-            raise HTTPException(status_code=403, detail="无权修改该家庭画像")
-
-        from .models import FamilyInfo
-        family_data = body.get("family_info", {})
-        family_info = FamilyInfo(**family_data)
-
-        user = update_family_info(openid, family_info)
-        return {"status": "ok", "family_info": user.family_info.model_dump()}
-    except HTTPException as he:
-        raise he
+            # 调用支付处理函数
+            success = process_payment_notification(
+                openid=openid,
+                transaction_id=transaction_id,
+                out_trade_no=out_trade_no,
+                total_fee=total_fee,
+                time_end=time_end
+            )
+            
+            if success:
+                logger.info(f"支付回调处理成功: 订单{out_trade_no}, 金额{total_fee}分")
+                return Response(
+                    content='<xml><return_code><![CDATA[SUCCESS]]></return_code><return_msg><![CDATA[OK]]></return_msg></xml>',
+                    media_type='application/xml'
+                )
+            else:
+                logger.error(f"支付回调处理失败: 订单{out_trade_no}")
+                return Response(
+                    content='<xml><return_code><![CDATA[FAIL]]></return_code><return_msg><![CDATA[处理失败]]></return_msg></xml>',
+                    media_type='application/xml'
+                )
+        else:
+            # 支付失败
+            err_code = root.find('err_code').text if root.find('err_code') is not None else ''
+            err_code_des = root.find('err_code_des').text if root.find('err_code_des') is not None else ''
+            logger.warning(f"支付失败: {err_code} - {err_code_des}")
+            
+            return Response(
+                content='<xml><return_code><![CDATA[SUCCESS]]></return_code><return_msg><![CDATA[OK]]></return_msg></xml>',
+                media_type='application/xml'
+            )
+            
+    except ET.ParseError as e:
+        logger.error(f"XML解析失败: {e}")
+        return Response(
+            content='<xml><return_code><![CDATA[FAIL]]></return_code><return_msg><![CDATA[XML解析失败]]></return_msg></xml>',
+            media_type='application/xml'
+        )
     except Exception as e:
-        logger.error(f"[Profile] 更新失败: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error(f"支付回调处理异常: {e}", exc_info=True)
+        return Response(
+            content='<xml><return_code><![CDATA[FAIL]]></return_code><return_msg><![CDATA[系统异常]]></return_msg></xml>',
+            media_type='application/xml'
+        )
 
+
+@router.get("/payment/callback")
+async def wechat_payment_callback_get():
+    """
+    微信支付回调GET请求处理（用于微信服务器验证）
+    """
+    return Response(
+        content='<xml><return_code><![CDATA[SUCCESS]]></return_code><return_msg><![CDATA[OK]]></return_msg></xml>',
+        media_type='application/xml'
+    )
+
+
+# ============================================================
+# 支付状态查询
+# ============================================================
+
+@router.get("/payment/status/{out_trade_no}")
+async def get_payment_status(out_trade_no: str):
+    """
+    查询支付订单状态
+    """
+    try:
+        from .payment import get_payment_status as query_payment_status
+        status = query_payment_status(out_trade_no)
+        return JSONResponse(content={
+            "code": 0,
+            "message": "success",
+            "data": status
+        })
+    except Exception as e:
+        logger.error(f"查询支付状态失败: {e}")
+        return JSONResponse(
+            content={
+                "code": -1,
+                "message": f"查询失败: {str(e)}"
+            },
+            status_code=500
+        )

@@ -164,4 +164,69 @@ pipeline:
     title:
       min_length: 12
       max_length: 18
-      required_elements: ["数字", "政策", "升学"]
+      required_elements: ["数字", "成都", "升学", "政策"]
+
+# 按次诊断计费配置（新增）
+diagnosis_pricing:
+  # 单次诊断价格（元）
+  price_per_diagnosis: 9.9
+  # 免费诊断次数（新用户）
+  free_diagnoses: 1
+  # 套餐配置
+  packages:
+    - name: "单次诊断"
+      diagnoses: 1
+      price: 9.9
+      discount: 0
+    - name: "3次套餐"
+      diagnoses: 3
+      price: 24.9
+      discount: 0.16  # 约8.3元/次
+    - name: "10次套餐"
+      diagnoses: 10
+      price: 69.9
+      discount: 0.29  # 约6.99元/次
+    - name: "30次套餐"
+      diagnoses: 30
+      price: 159.9
+      discount: 0.46  # 约5.33元/次
+  # 诊断类型配置
+  diagnosis_types:
+    - name: "升学路径诊断"
+      code: "path_diagnosis"
+      price: 9.9
+      description: "基于学生成绩、户籍、学籍等信息的升学路径推荐"
+    - name: "学校匹配诊断"
+      code: "school_match"
+      price: 9.9
+      description: "根据学生画像匹配最适合的学校"
+    - name: "政策解读诊断"
+      code: "policy_analysis"
+      price: 9.9
+      description: "针对特定升学政策的个性化解读"
+    - name: "综合诊断报告"
+      code: "comprehensive"
+      price: 19.9
+      description: "包含升学路径、学校匹配、政策解读的完整诊断报告"
+  # 支付相关配置
+  payment:
+    # 支付超时时间（分钟）
+    timeout_minutes: 30
+    # 订单过期时间（分钟）
+    order_expire_minutes: 60
+    # 是否启用支付
+    enabled: true
+    # 支付方式
+    methods:
+      - wechat_pay
+    # 测试模式（使用沙箱环境）
+    test_mode: false
+    # 沙箱环境配置
+    sandbox:
+      api_base_url: "https://api.mch.weixin.qq.com/sandboxnew"
+      merchant_id: "1900000109"
+      api_v3_key: "sandbox_api_v3_key"
+      cert_path: ""
+      cert_serial_no: ""
+      notify_url: "http://localhost:8000/api/v1/payment/notify"
+      refund_notify_url: "http://localhost:8000/api/v1/payment/refund-notify"

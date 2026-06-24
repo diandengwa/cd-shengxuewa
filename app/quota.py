@@ -143,89 +143,46 @@ def check_quota(openid: str, action: str = "query") -> Tuple[bool, UserRecord, s
                 update_user(user)
                 return True, user, msg
             else:
-                # Pro Lite用户基础查询不限制
+                # Pro Lite用户基础查询无限
                 msg = "Pro Lite用户，基础查询无限使用"
                 return True, user, msg
 
         elif action == "diagnose":
             # 深度诊断：消耗credits
             if user.plan == PlanType.FREE:
-                msg = "免费用户不支持深度诊断，升级Pro Lite ¥29.9/月获取诊断功能"
+                msg = "免费用户无深度诊断权限，升级Pro Lite ¥29.9/月获取30次深度诊断"
                 return False, user, msg
-            
+
             # Pro Lite用户检查credits
-            available = get_available_credits(user)
-            if available < DIAGNOSE_COST:
+            available_credits = get_available_credits(user)
+            if available_credits < DIAGNOSE_COST:
                 msg = (
-                    f"Pro Lite用户本月credits已用完"
-                    f"（本月已用{user.quota.credits_used}/{LITE_MONTHLY_CREDITS}）。"
-                    f"升级Pro Max ¥99.9/月无限使用或等待下月重置。"
+                    f"Pro Lite用户credits不足（可用{available_credits}，需要{DIAGNOSE_COST}）。"
+                    f"升级Pro Max ¥99/月获取无限深度诊断。"
                 )
                 return False, user, msg
-            
+
             # 扣credits
             user.quota.credits_used += DIAGNOSE_COST
-            user.quota.monthly_diagnoses_used += 1
             remaining_credits = LITE_MONTHLY_CREDITS - user.quota.credits_used
             msg = f"深度诊断成功，本月剩余{remaining_credits} credits"
             update_user(user)
             return True, user, msg
 
         else:
+            logger.error(f"[Quota] 未知操作类型: {action}")
             return False, user, f"未知操作类型: {action}"
 
     except Exception as e:
         logger.error(f"[Quota] 配额检查异常: {e}", exc_info=True)
-        # 异常时允许通过，避免影响用户体验
+        # 异常时默认允许，避免阻塞用户
         user = get_or_create_user(openid)
-        return True, user, f"配额检查异常，已临时放行: {str(e)}"
-
-
-def get_quota_info(openid: str) -> dict:
-    """
-    获取用户配额信息（用于前端展示）
-    """
-    try:
-        user = get_or_create_user(openid)
-        user = _reset_monthly_quota(user)
-        
-        info = {
-            "plan": user.plan.value,
-            "plan_name": user.plan.name,
-            "monthly_queries": {
-                "total": FREE_MONTHLY_QUERIES if user.plan == PlanType.FREE else "无限",
-                "used": user.quota.monthly_queries_used,
-                "remaining": max(0, FREE_MONTHLY_QUERIES - user.quota.monthly_queries_used) if user.plan == PlanType.FREE else "无限",
-                "reset_date": user.quota.monthly_queries_reset
-            },
-            "monthly_diagnoses": {
-                "total": 0 if user.plan == PlanType.FREE else LITE_MONTHLY_CREDITS if user.plan == PlanType.LITE else "无限",
-                "used": user.quota.monthly_diagnoses_used,
-                "remaining": get_available_credits(user) if user.plan != PlanType.MAX else "无限",
-                "reset_date": user.quota.credits_reset
-            },
-            "credits": {
-                "total": 0 if user.plan == PlanType.FREE else LITE_MONTHLY_CREDITS if user.plan == PlanType.LITE else "无限",
-                "used": user.quota.credits_used,
-                "remaining": get_available_credits(user) if user.plan != PlanType.MAX else "无限",
-                "reset_date": user.quota.credits_reset
-            }
-        }
-        return info
-    except Exception as e:
-        logger.error(f"[Quota] 获取配额信息异常: {e}", exc_info=True)
-        return {
-            "error": f"获取配额信息失败: {str(e)}",
-            "plan": "free",
-            "monthly_queries": {"remaining": 0},
-            "monthly_diagnoses": {"remaining": 0},
-            "credits": {"remaining": 0}
-        }
+        return True, user, f"配额检查异常，已放行: {str(e)}"
 
 
 def consume_diagnose(openid: str) -> Tuple[bool, UserRecord, str]:
     """
-    消耗一次深度诊断（外部调用入口）
+    消耗一次深度诊断（简化接口）
     返回: (success, user_record, message)
     """
     return check_quota(openid, action="diagnose")
@@ -233,7 +190,47 @@ def consume_diagnose(openid: str) -> Tuple[bool, UserRecord, str]:
 
 def consume_query(openid: str) -> Tuple[bool, UserRecord, str]:
     """
-    消耗一次基础查询（外部调用入口）
+    消耗一次基础查询（简化接口）
     返回: (success, user_record, message)
     """
     return check_quota(openid, action="query")
+
+
+def get_user_quota_info(openid: str) -> dict:
+    """
+    获取用户配额信息（用于前端展示）
+    返回: {
+        "plan": "free" | "lite" | "max",
+        "monthly_queries_used": int,
+        "monthly_queries_total": int | "unlimited",
+        "credits_used": int,
+        "credits_total": int | "unlimited",
+        "diagnoses_used": int,
+        "diagnoses_total": int | "unlimited"
+    }
+    """
+    try:
+        user = get_or_create_user(openid)
+        user = _reset_monthly_quota(user)
+
+        info = {
+            "plan": user.plan.value,
+            "monthly_queries_used": user.quota.monthly_queries_used,
+            "monthly_queries_total": FREE_MONTHLY_QUERIES if user.plan == PlanType.FREE else "unlimited",
+            "credits_used": user.quota.credits_used,
+            "credits_total": LITE_MONTHLY_CREDITS if user.plan == PlanType.LITE else ("unlimited" if user.plan == PlanType.MAX else 0),
+            "diagnoses_used": user.quota.monthly_diagnoses_used,
+            "diagnoses_total": "unlimited" if user.plan == PlanType.MAX else (LITE_MONTHLY_CREDITS if user.plan == PlanType.LITE else 0)
+        }
+        return info
+    except Exception as e:
+        logger.error(f"[Quota] 获取配额信息异常: {e}", exc_info=True)
+        return {
+            "plan": "free",
+            "monthly_queries_used": 0,
+            "monthly_queries_total": FREE_MONTHLY_QUERIES,
+            "credits_used": 0,
+            "credits_total": 0,
+            "diagnoses_used": 0,
+            "diagnoses_total": 0
+        }

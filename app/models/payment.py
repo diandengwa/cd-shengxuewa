@@ -6,9 +6,9 @@
 
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 
-from sqlalchemy import Column, String, Integer, Float, DateTime, Enum, Text, Index, ForeignKey, Boolean
+from sqlalchemy import Column, String, Integer, Float, DateTime, Enum, Text, Index, ForeignKey, Boolean, BigInteger
 from sqlalchemy.dialects.sqlite import TEXT
 from sqlalchemy.orm import declarative_base, relationship
 
@@ -56,6 +56,15 @@ class ConsumptionStatus(str, enum.Enum):
     CONSUMED = "consumed"        # 已消耗
     EXPIRED = "expired"          # 已过期
     REFUNDED = "refunded"        # 已退款
+
+# ============================================================
+# 诊断计费类型枚举
+# ============================================================
+class DiagnosticChargeType(str, enum.Enum):
+    """诊断计费类型枚举"""
+    SINGLE = "single"            # 单次诊断
+    PACKAGE = "package"          # 套餐诊断
+    SUBSCRIPTION = "subscription" # 订阅制诊断
 
 # ============================================================
 # 基础 ORM 模型
@@ -150,8 +159,7 @@ class PaymentRecord(Base):
     # ============================================================
     # 支付状态与方式
     # ============================================================
-    # 支付状态
-    status = Column(
+    payment_status = Column(
         String(32),
         nullable=False,
         default=PaymentStatus.PENDING.value,
@@ -159,11 +167,9 @@ class PaymentRecord(Base):
         comment="支付状态：pending/paid/failed/refunded/expired/cancelled"
     )
     
-    # 支付方式
     payment_method = Column(
         String(32),
         nullable=True,
-        default=None,
         comment="支付方式：wechat_pay/alipay/balance/free"
     )
     
@@ -174,14 +180,13 @@ class PaymentRecord(Base):
         DateTime,
         nullable=False,
         default=datetime.utcnow,
-        comment="创建时间"
+        comment="创建时间（UTC）"
     )
     
     paid_at = Column(
         DateTime,
         nullable=True,
-        default=None,
-        comment="支付完成时间"
+        comment="支付完成时间（UTC）"
     )
     
     updated_at = Column(
@@ -189,21 +194,25 @@ class PaymentRecord(Base):
         nullable=False,
         default=datetime.utcnow,
         onupdate=datetime.utcnow,
-        comment="更新时间"
+        comment="更新时间（UTC）"
     )
     
     # ============================================================
     # 扩展字段
     # ============================================================
-    # 备注信息
+    description = Column(
+        Text,
+        nullable=True,
+        comment="订单描述"
+    )
+    
     remark = Column(
         Text,
         nullable=True,
-        default=None,
         comment="备注信息"
     )
     
-    # 是否删除（软删除标记）
+    # 是否删除（软删除）
     is_deleted = Column(
         Boolean,
         nullable=False,
@@ -215,54 +224,30 @@ class PaymentRecord(Base):
     # 索引
     # ============================================================
     __table_args__ = (
-        Index('idx_user_status', 'user_id', 'status'),
-        Index('idx_product_type', 'product_type', 'status'),
+        Index('idx_user_payment_status', 'user_id', 'payment_status'),
+        Index('idx_product_payment', 'product_id', 'product_type'),
         Index('idx_created_at', 'created_at'),
     )
     
     # ============================================================
     # 关系
     # ============================================================
-    # 关联的诊断消耗记录
     consumption_records = relationship(
         "DiagnosisCreditConsumption",
         back_populates="payment_record",
-        lazy="dynamic",
-        cascade="all, delete-orphan"
+        lazy="dynamic"
     )
     
     def __repr__(self):
-        return f"<PaymentRecord(order_no='{self.order_no}', status='{self.status}', amount={self.pay_amount})>"
-    
-    def to_dict(self) -> dict:
-        """转换为字典"""
-        return {
-            "id": self.id,
-            "order_no": self.order_no,
-            "transaction_id": self.transaction_id,
-            "user_id": self.user_id,
-            "product_id": self.product_id,
-            "product_type": self.product_type,
-            "total_amount": self.total_amount,
-            "pay_amount": self.pay_amount,
-            "discount_amount": self.discount_amount,
-            "status": self.status,
-            "payment_method": self.payment_method,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "paid_at": self.paid_at.isoformat() if self.paid_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
-            "remark": self.remark
-        }
+        return f"<PaymentRecord(order_no={self.order_no}, user_id={self.user_id}, amount={self.pay_amount}, status={self.payment_status})>"
 
 
 class DiagnosisCreditConsumption(Base):
     """
-    诊断次数消耗记录 ORM 模型
+    诊断信用消耗记录 ORM 模型
     
-    记录用户每次使用诊断服务的消耗情况，包括关联的支付记录、
-    消耗时间、消耗状态等。支持按次诊断计费方案。
-    
-    每次诊断消耗对应一条消耗记录，与支付记录关联。
+    记录用户每次使用诊断服务时的信用消耗情况，
+    支持按次计费、套餐计费和订阅制计费三种模式。
     """
     __tablename__ = "diagnosis_credit_consumptions"
     
@@ -281,56 +266,63 @@ class DiagnosisCreditConsumption(Base):
     )
     
     # ============================================================
-    # 用户与支付记录关联
+    # 关联信息
     # ============================================================
     user_id = Column(
         Integer,
         nullable=False,
         index=True,
-        comment="用户ID，关联用户表"
+        comment="用户ID"
     )
     
     # 关联的支付记录ID
-    payment_record_id = Column(
+    payment_id = Column(
         Integer,
-        ForeignKey('payment_records.id', ondelete='SET NULL'),
+        ForeignKey('payment_records.id'),
         nullable=True,
         index=True,
-        comment="关联的支付记录ID"
+        comment="关联支付记录ID"
     )
     
-    # ============================================================
-    # 诊断服务关联
-    # ============================================================
-    # 诊断记录ID（关联具体的诊断服务）
+    # 关联的诊断记录ID
     diagnosis_id = Column(
         String(64),
-        nullable=True,
+        nullable=False,
         index=True,
-        comment="诊断记录ID"
+        comment="关联诊断记录ID"
     )
     
-    # 诊断类型
-    diagnosis_type = Column(
+    # ============================================================
+    # 计费信息
+    # ============================================================
+    # 计费类型
+    charge_type = Column(
         String(32),
         nullable=False,
-        default="standard",
-        comment="诊断类型：standard/premium/quick"
+        default=DiagnosticChargeType.SINGLE.value,
+        comment="计费类型：single/package/subscription"
     )
     
-    # ============================================================
-    # 消耗信息
-    # ============================================================
-    # 消耗次数（默认1次）
-    quantity = Column(
+    # 消耗的信用点数（单位：分）
+    credit_amount = Column(
         Integer,
         nullable=False,
-        default=1,
-        comment="消耗次数"
+        default=0,
+        comment="消耗信用点数（单位：分）"
     )
     
+    # 剩余信用点数（消耗后）
+    remaining_credit = Column(
+        Integer,
+        nullable=False,
+        default=0,
+        comment="剩余信用点数（单位：分）"
+    )
+    
+    # ============================================================
     # 消耗状态
-    status = Column(
+    # ============================================================
+    consumption_status = Column(
         String(32),
         nullable=False,
         default=ConsumptionStatus.PENDING.value,
@@ -345,21 +337,19 @@ class DiagnosisCreditConsumption(Base):
         DateTime,
         nullable=False,
         default=datetime.utcnow,
-        comment="创建时间"
+        comment="创建时间（UTC）"
     )
     
     consumed_at = Column(
         DateTime,
         nullable=True,
-        default=None,
-        comment="消耗时间（实际使用时间）"
+        comment="消耗时间（UTC）"
     )
     
     expired_at = Column(
         DateTime,
         nullable=True,
-        default=None,
-        comment="过期时间"
+        comment="过期时间（UTC）"
     )
     
     updated_at = Column(
@@ -367,21 +357,25 @@ class DiagnosisCreditConsumption(Base):
         nullable=False,
         default=datetime.utcnow,
         onupdate=datetime.utcnow,
-        comment="更新时间"
+        comment="更新时间（UTC）"
     )
     
     # ============================================================
     # 扩展字段
     # ============================================================
-    # 备注信息
+    description = Column(
+        Text,
+        nullable=True,
+        comment="消耗描述"
+    )
+    
     remark = Column(
         Text,
         nullable=True,
-        default=None,
         comment="备注信息"
     )
     
-    # 是否删除（软删除标记）
+    # 是否删除（软删除）
     is_deleted = Column(
         Boolean,
         nullable=False,
@@ -393,42 +387,143 @@ class DiagnosisCreditConsumption(Base):
     # 索引
     # ============================================================
     __table_args__ = (
-        Index('idx_consumption_user_status', 'user_id', 'status'),
-        Index('idx_consumption_diagnosis', 'diagnosis_id'),
-        Index('idx_consumption_created_at', 'created_at'),
+        Index('idx_user_consumption', 'user_id', 'consumption_status'),
+        Index('idx_diagnosis_consumption', 'diagnosis_id'),
+        Index('idx_consumption_created', 'created_at'),
     )
     
     # ============================================================
     # 关系
     # ============================================================
-    # 关联的支付记录
     payment_record = relationship(
         "PaymentRecord",
         back_populates="consumption_records",
-        lazy="joined"
+        foreign_keys=[payment_id]
     )
     
     def __repr__(self):
-        return f"<DiagnosisCreditConsumption(consumption_no='{self.consumption_no}', status='{self.status}')>"
+        return f"<DiagnosisCreditConsumption(consumption_no={self.consumption_no}, user_id={self.user_id}, credit={self.credit_amount}, status={self.consumption_status})>"
+
+
+# ============================================================
+# Pydantic 模型（用于API请求/响应验证）
+# ============================================================
+from pydantic import BaseModel, Field, validator
+from typing import Optional
+
+class PaymentCreate(BaseModel):
+    """创建支付请求模型"""
+    user_id: int = Field(..., description="用户ID")
+    product_id: str = Field(..., description="商品ID")
+    product_type: str = Field(default=ProductType.DIAGNOSTIC.value, description="商品类型")
+    total_amount: int = Field(..., ge=0, description="订单总金额（单位：分）")
+    pay_amount: int = Field(..., ge=0, description="实际支付金额（单位：分）")
+    discount_amount: int = Field(default=0, ge=0, description="优惠金额（单位：分）")
+    payment_method: Optional[str] = Field(None, description="支付方式")
+    description: Optional[str] = Field(None, description="订单描述")
     
-    def to_dict(self) -> dict:
-        """转换为字典"""
-        return {
-            "id": self.id,
-            "consumption_no": self.consumption_no,
-            "user_id": self.user_id,
-            "payment_record_id": self.payment_record_id,
-            "diagnosis_id": self.diagnosis_id,
-            "diagnosis_type": self.diagnosis_type,
-            "quantity": self.quantity,
-            "status": self.status,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "consumed_at": self.consumed_at.isoformat() if self.consumed_at else None,
-            "expired_at": self.expired_at.isoformat() if self.expired_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
-            "remark": self.remark,
-            "payment_record": self.payment_record.to_dict() if self.payment_record else None
+    @validator('pay_amount')
+    def validate_pay_amount(cls, v, values):
+        """验证支付金额不超过总金额"""
+        if 'total_amount' in values and v > values['total_amount']:
+            raise ValueError('支付金额不能超过总金额')
+        return v
+    
+    @validator('discount_amount')
+    def validate_discount_amount(cls, v, values):
+        """验证优惠金额不超过总金额"""
+        if 'total_amount' in values and v > values['total_amount']:
+            raise ValueError('优惠金额不能超过总金额')
+        return v
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "user_id": 1,
+                "product_id": "DIAG_20240101_001",
+                "product_type": "diagnostic",
+                "total_amount": 1000,
+                "pay_amount": 1000,
+                "discount_amount": 0,
+                "payment_method": "wechat_pay",
+                "description": "K12升学诊断服务"
+            }
         }
+
+class PaymentResponse(BaseModel):
+    """支付响应模型"""
+    id: int
+    order_no: str
+    user_id: int
+    product_id: str
+    product_type: str
+    total_amount: int
+    pay_amount: int
+    discount_amount: int
+    payment_status: str
+    payment_method: Optional[str]
+    created_at: datetime
+    paid_at: Optional[datetime]
+    description: Optional[str]
+    
+    class Config:
+        from_attributes = True
+
+class ConsumptionCreate(BaseModel):
+    """创建消耗记录请求模型"""
+    user_id: int = Field(..., description="用户ID")
+    diagnosis_id: str = Field(..., description="诊断记录ID")
+    payment_id: Optional[int] = Field(None, description="关联支付记录ID")
+    charge_type: str = Field(default=DiagnosticChargeType.SINGLE.value, description="计费类型")
+    credit_amount: int = Field(..., ge=0, description="消耗信用点数（单位：分）")
+    remaining_credit: int = Field(default=0, ge=0, description="剩余信用点数（单位：分）")
+    description: Optional[str] = Field(None, description="消耗描述")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "user_id": 1,
+                "diagnosis_id": "DIAG_20240101_001",
+                "payment_id": 1,
+                "charge_type": "single",
+                "credit_amount": 500,
+                "remaining_credit": 500,
+                "description": "单次诊断服务消耗"
+            }
+        }
+
+class ConsumptionResponse(BaseModel):
+    """消耗记录响应模型"""
+    id: int
+    consumption_no: str
+    user_id: int
+    diagnosis_id: str
+    payment_id: Optional[int]
+    charge_type: str
+    credit_amount: int
+    remaining_credit: int
+    consumption_status: str
+    created_at: datetime
+    consumed_at: Optional[datetime]
+    expired_at: Optional[datetime]
+    description: Optional[str]
+    
+    class Config:
+        from_attributes = True
+
+class PaymentListResponse(BaseModel):
+    """支付记录列表响应模型"""
+    total: int
+    items: List[PaymentResponse]
+    page: int
+    page_size: int
+
+class ConsumptionListResponse(BaseModel):
+    """消耗记录列表响应模型"""
+    total: int
+    items: List[ConsumptionResponse]
+    page: int
+    page_size: int
 
 
 # ============================================================
@@ -436,29 +531,55 @@ class DiagnosisCreditConsumption(Base):
 # ============================================================
 def generate_order_no() -> str:
     """
-    生成订单号
+    生成唯一订单号
     
-    格式：ORD + 时间戳(14位) + 随机字符串(6位)
-    示例：ORD20231201123456A1B2C3
+    格式：ORD + 14位时间戳(YYYYMMDDHHMMSS) + 8位随机字符串
     
     Returns:
-        str: 生成的订单号
+        str: 唯一订单号
     """
-    timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
-    random_str = secrets.token_hex(3).upper()  # 6位随机字符串
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    random_str = uuid.uuid4().hex[:8].upper()
     return f"ORD{timestamp}{random_str}"
-
 
 def generate_consumption_no() -> str:
     """
-    生成消耗记录编号
+    生成唯一消耗记录编号
     
-    格式：CONS + 时间戳(14位) + 随机字符串(6位)
-    示例：CONS20231201123456A1B2C3
+    格式：CONS + 14位时间戳(YYYYMMDDHHMMSS) + 8位随机字符串
     
     Returns:
-        str: 生成的消耗记录编号
+        str: 唯一消耗记录编号
     """
-    timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
-    random_str = secrets.token_hex(3).upper()  # 6位随机字符串
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    random_str = uuid.uuid4().hex[:8].upper()
     return f"CONS{timestamp}{random_str}"
+
+def calculate_discount(original_amount: int, discount_rate: float = 0.0) -> int:
+    """
+    计算优惠金额
+    
+    Args:
+        original_amount: 原始金额（单位：分）
+        discount_rate: 折扣率（0.0 ~ 1.0）
+    
+    Returns:
+        int: 优惠金额（单位：分）
+    """
+    if discount_rate < 0 or discount_rate > 1:
+        raise ValueError("折扣率必须在0到1之间")
+    return int(original_amount * discount_rate)
+
+def calculate_pay_amount(original_amount: int, discount_amount: int = 0) -> int:
+    """
+    计算实际支付金额
+    
+    Args:
+        original_amount: 原始金额（单位：分）
+        discount_amount: 优惠金额（单位：分）
+    
+    Returns:
+        int: 实际支付金额（单位：分）
+    """
+    pay_amount = original_amount - discount_amount
+    return max(pay_amount, 0)
