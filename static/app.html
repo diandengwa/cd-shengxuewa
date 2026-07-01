@@ -6,20 +6,20 @@
   <meta name="description" content="点灯蛙升学参谋 — 成都K12升学政策研判工具">
   <title>升学参谋 · 点灯蛙</title>
   <link rel="icon" href="/static/assets/logo-mono.png" type="image/png">
-  <link rel="stylesheet" href="/static/css/tokens.css?v=20260701c">
-  <link rel="stylesheet" href="/static/css/base.css?v=20260701c">
-  <link rel="stylesheet" href="/static/css/components.css?v=20260701c">
-  <link rel="stylesheet" href="/static/css/pages.css?v=20260701c">
+  <link rel="stylesheet" href="/static/css/tokens.css?v=20260701d">
+  <link rel="stylesheet" href="/static/css/base.css?v=20260701d">
+  <link rel="stylesheet" href="/static/css/components.css?v=20260701d">
+  <link rel="stylesheet" href="/static/css/pages.css?v=20260701d">
 </head>
 <body>
 <div id="app" x-data="appPage()" x-init="init()" x-cloak>
 
   <!-- 导航栏 -->
   <nav class="navbar">
-    <div style="display:flex;align-items:center;gap:8px;">
+    <a href="/" style="display:flex;align-items:center;gap:8px;text-decoration:none;color:inherit;">
       <img src="/static/assets/logo-color.png" alt="点灯蛙" style="width:28px;height:28px;border-radius:50%;">
       <span style="font-weight:600;font-size:16px;">成都升学参谋</span>
-    </div>
+    </a>
     <div style="display:flex;align-items:center;gap:12px;">
       <template x-if="user.isLoggedIn">
         <span style="font-size:14px;" x-text="user.nickname"></span>
@@ -379,9 +379,9 @@
 
 </div>
 
-<script src="/static/js/store.js?v=20260701c" defer></script>
-<script src="/static/js/api.js?v=20260701c" defer></script>
-<script src="/static/js/app.js?v=20260701c" defer></script>
-<script src="/static/js/alpine.min.js?v=20260701c" defer></script>
+<script src="/static/js/store.js?v=20260701d" defer></script>
+<script src="/static/js/api.js?v=20260701d" defer></script>
+<script src="/static/js/app.js?v=20260701d" defer></script>
+<script src="/static/js/alpine.min.js?v=20260701d" defer></script>
 </body>
 </html>
