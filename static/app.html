@@ -6,10 +6,10 @@
   <meta name="description" content="点灯蛙升学参谋 — 成都K12升学政策研判工具">
   <title>升学参谋 · 点灯蛙</title>
   <link rel="icon" href="/static/assets/logo-mono.png" type="image/png">
-  <link rel="stylesheet" href="/static/css/tokens.css?v=20260701">
-  <link rel="stylesheet" href="/static/css/base.css?v=20260701">
-  <link rel="stylesheet" href="/static/css/components.css?v=20260701">
-  <link rel="stylesheet" href="/static/css/pages.css?v=20260701">
+  <link rel="stylesheet" href="/static/css/tokens.css?v=20260701c">
+  <link rel="stylesheet" href="/static/css/base.css?v=20260701c">
+  <link rel="stylesheet" href="/static/css/components.css?v=20260701c">
+  <link rel="stylesheet" href="/static/css/pages.css?v=20260701c">
 </head>
 <body>
 <div id="app" x-data="appPage()" x-init="init()" x-cloak>
@@ -68,7 +68,7 @@
               <div class="chat-content">
                 <div class="bubble" :class="msg.role === 'user' ? 'bubble-user' : 'bubble-ai'"
                      x-html="formatMessage(msg.content)"></div>
-              </template>
+              </div>
               <template x-if="msg.role === 'user'">
                 <div class="chat-avatar" style="background:var(--color-primary);color:white;">我</div>
               </template>
@@ -366,22 +366,22 @@
     </div>
   </div>
 
-</div>
-
-<!-- 免责声明弹窗 -->
-<div class="modal-overlay" x-show="showDisclaimer" x-cloak @click.self="showDisclaimer = false">
-  <div class="modal">
-    <h3 style="margin-bottom:12px;">⚠️ 诊断声明</h3>
-    <p style="font-size:14px;line-height:1.6;color:var(--color-text-secondary);margin-bottom:16px;">
-      本诊断内容由"点灯蛙"基于公开政策数据、用户输入与规则/模型辅助分析生成参考建议，不构成任何形式的录取保证或入学承诺。所有升学决策请以成都市教育局、各区教育局官方文件为准。
-    </p>
-    <button class="btn btn-primary btn-block" @click="showDisclaimer = false">我知道了</button>
+  <!-- 免责声明弹窗 -->
+  <div class="modal-overlay" x-show="showDisclaimer" x-cloak @click.self="showDisclaimer = false">
+    <div class="modal">
+      <h3 style="margin-bottom:12px;">⚠️ 诊断声明</h3>
+      <p style="font-size:14px;line-height:1.6;color:var(--color-text-secondary);margin-bottom:16px;">
+        本诊断内容由"点灯蛙"基于公开政策数据、用户输入与规则/模型辅助分析生成参考建议，不构成任何形式的录取保证或入学承诺。所有升学决策请以成都市教育局、各区教育局官方文件为准。
+      </p>
+      <button class="btn btn-primary btn-block" @click="showDisclaimer = false">我知道了</button>
+    </div>
   </div>
+
 </div>
 
-<script src="/static/js/store.js?v=20260701" defer></script>
-<script src="/static/js/api.js?v=20260701" defer></script>
-<script src="/static/js/app.js?v=20260701" defer></script>
-<script src="/static/js/alpine.min.js?v=20260701" defer></script>
+<script src="/static/js/store.js?v=20260701c" defer></script>
+<script src="/static/js/api.js?v=20260701c" defer></script>
+<script src="/static/js/app.js?v=20260701c" defer></script>
+<script src="/static/js/alpine.min.js?v=20260701c" defer></script>
 </body>
 </html>
