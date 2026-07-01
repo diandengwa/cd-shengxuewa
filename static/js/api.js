@@ -152,17 +152,17 @@ const API = {
   },
 
   // === 微信支付配置 ===
-  // 后端 GET /wechat/wechat/payment/config
+  // 后端 GET /wechat/payment/config
   async getPaymentConfig() {
-    return this.request('/wechat/wechat/payment/config');
+    return this.request('/wechat/payment/config');
   },
 
   // === Auth ===
-  // 后端 GET /wechat/wechat/auth?return_to=xxx → 重定向到微信OAuth
+  // 后端 GET /wechat/auth?return_to=xxx → 重定向到微信OAuth
   redirectToAuth() {
     const currentPath = window.location.pathname + window.location.search;
     sessionStorage.setItem('ddw_redirect', currentPath);
-    window.location.href = '/wechat/wechat/auth?return_to=' + encodeURIComponent(currentPath);
+    window.location.href = '/wechat/auth?return_to=' + encodeURIComponent(currentPath);
   },
 
   // === 工具方法 ===

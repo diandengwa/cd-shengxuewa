@@ -84,3 +84,7 @@ AI对话实录*.md
 # Database
 *.db
 *.db-journal
+
+# Runtime data
+data/*.json
+pipeline-state.json
