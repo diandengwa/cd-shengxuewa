@@ -26,7 +26,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
-    prefix="/api/calendar",
+    
     tags=["升学日历"],
     responses={404: {"description": "未找到"}},
 )

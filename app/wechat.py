@@ -1,4 +1,3 @@
-```python
 """
 微信草稿箱上传模块 — 内容工厂流水线
 md排版 + 微信公众号草稿箱自动上传
@@ -35,7 +34,10 @@ WECHAT_APPID = os.getenv("WECHAT_APPID")
 WECHAT_APPSECRET = os.getenv("WECHAT_APPSECRET")
 WECHAT_MCHID = os.getenv("WECHAT_MCHID")  # 商户号
 WECHAT_MCHKEY = os.getenv("WECHAT_MCHKEY")  # 商户API密钥（V2）
-WECHAT_NOTIFY_URL = os.getenv("WECHAT_NOTIFY_URL")  # 支付回调地址
+WECHAT_NOTIFY_URL = os.getenv("WECHAT_NOTIFY_URL")
+WECHAT_TOKEN = os.getenv("WECHAT_TOKEN", "default_wechat_token")  # 支付回调地址
+WECHAT_SECRET = os.getenv("WECHAT_SECRET", os.getenv("WECHAT_APPSECRET"))
+OAUTH_REDIRECT_URI = os.getenv("OAUTH_REDIRECT_URI", "http://yourdomain.com/wechat/callback")
 
 # 微信支付V3配置
 WECHAT_PAY_V3_MCHID = os.getenv("WECHAT_PAY_V3_MCHID", WECHAT_MCHID)  # V3商户号
@@ -899,39 +901,66 @@ def _parse_v2_xml(xml_str: str) -> Dict[str, str]:
         return {}
 
 
-async def create_v2_jsapi_order(
-    openid: str,
-    total_fee: int,
-    description: str,
-    out_trade_no: str,
-    attach: str = "",
-    time_expire: Optional[str] = None
-) -> Dict[str, Any]:
-    """
-    微信支付V2 JSAPI下单（统一下单）
-    保留V2接口用于兼容
-    
-    Args:
-        openid: 用户微信openid
-        total_fee: 订单金额（单位：分）
-        description: 商品描述
-        out_trade_no: 商户订单号
-        attach: 附加数据
-        time_expire: 订单过期时间
-    
-    Returns:
-        包含prepay_id的响应字典
-    """
-    if not WECHAT_APPID or not WECHAT_MCHID:
-        raise ValueError("WECHAT_APPID 或 WECHAT_MCHID 环境变量未设置")
-    
-    if not WECHAT_NOTIFY_URL:
-        raise ValueError("WECHAT_NOTIFY_URL 环境变量未设置")
-    
-    # 构建请求参数
-    params = {
-        "appid": WECHAT_APPID,
-        "mch_id": WECHAT_MCHID,
-        "nonce_str": ''.join(random.choices(string.ascii_letters + string.digits, k=32)),
-        "body": description,
-        "out_trade
+
+def verify_signature(signature: str, timestamp: str, nonce: str) -> bool:
+    """验证微信消息签名"""
+    if not WECHAT_TOKEN:
+        logger.warning("[WeChat] WECHAT_TOKEN is not configured.")
+        return False
+    params = sorted([WECHAT_TOKEN, timestamp, nonce])
+    hash_str = hashlib.sha1("".join(params).encode("utf-8")).hexdigest()
+    return hash_str == signature
+
+def build_oauth_url(state: str = "", scope: str = "snsapi_base") -> str:
+    """生成OAuth授权URL"""
+    redirect_uri = quote(OAUTH_REDIRECT_URI, safe="")
+    return (
+        f"https://open.weixin.qq.com/connect/oauth2/authorize"
+        f"?appid={WECHAT_APPID}"
+        f"&redirect_uri={redirect_uri}"
+        f"&response_type=code"
+        f"&scope={scope}"
+        f"&state={state}#wechat_redirect"
+    )
+
+def exchange_code_for_openid(code: str) -> dict:
+    """通过code获取openid"""
+    try:
+        with httpx.Client(timeout=10) as client:
+            resp = client.get("https://api.weixin.qq.com/sns/oauth2/access_token", params={
+                "appid": WECHAT_APPID,
+                "secret": WECHAT_SECRET,
+                "code": code,
+                "grant_type": "authorization_code",
+            })
+            data = resp.json()
+        return data
+    except Exception as e:
+        logger.error(f"[WeChat] Exchange code failed: {e}")
+        return {}
+
+
+def register_or_get_user(openid: str, oauth_token: str = "") -> dict:
+    """注册或获取用户，关联 quota 模块"""
+    from .quota import get_or_create_user, update_user
+    user = get_or_create_user(openid)
+    user.last_active = time.strftime("%Y-%m-%dT%H:%M:%S")
+    update_user(user)
+    return user.model_dump()
+
+
+
+def get_user_quota(openid: str) -> dict:
+    """获取用户 quota"""
+    from .quota import get_or_create_user
+    user = get_or_create_user(openid)
+    return user.quota.model_dump()
+
+
+
+def increment_user_quota(openid: str) -> dict:
+    """增加用户查询 quota"""
+    from .quota import check_quota
+    allowed, user, msg = check_quota(openid, "query")
+    return {"allowed": allowed, "message": msg, "quota": user.quota.model_dump()}
+

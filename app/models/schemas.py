@@ -207,3 +207,110 @@ class PaymentConfig(BaseModel):
     
     # 过期配置
     credit_expire_days: int = Field(365, description="诊断次数有效期（天）")
+
+# ============================================================
+# Missing Schemas (Restored)
+# ============================================================
+
+class Step1SituationUnderstanding(BaseModel):
+    family_profile: FamilyInfo = Field(default_factory=FamilyInfo)
+    scenario: ScenarioType = ScenarioType.UNKNOWN
+    scenario_confidence: float = Field(0.0, ge=0, le=1)
+    summary: str = Field("", description="一句话家庭描述")
+    missing_info: List[str] = Field(default_factory=list, description="还缺什么信息")
+
+class Step2GrayZone(BaseModel):
+    policy_text: str = Field("", description="政策原文")
+    conservative_read: str = Field("", description="保守解读（合规底线）")
+    aggressive_read: str = Field("", description="积极解读（实际执行弹性）")
+    zone_type: str = Field("", description="灰色地带类型: 模糊/执行差异/特批/时效性")
+    confidence: str = Field("", description="确定度")
+    source: str = Field("", description="信息来源")
+
+class CompetitionLevel(str, Enum):
+    EXTREME = "extreme"
+    HIGH = "high"
+    MODERATE = "moderate"
+    LOW = "low"
+
+class PathOption(BaseModel):
+    path_name: str = Field("", description="升学路径名称")
+    competition: CompetitionLevel = CompetitionLevel.MODERATE
+    competition_note: str = Field("", description="竞争烈度说明")
+    eligibility: str = Field("", description="资格判定: 稳/大概率/冲")
+    eligibility_confidence: str = Field("")
+    key_requirement: str = Field("", description="关键要求")
+    risk: str = Field("", description="风险提示")
+
+class Step3CompetitionAndPaths(BaseModel):
+    paths: List[PathOption] = Field(default_factory=list)
+    recommended_combo: str = Field("", description="推荐组合: 主力路径+兜底+备选")
+    overall_assessment: str = Field("", description="综合评估")
+
+class Step4Timeline(BaseModel):
+    action_items: List[Dict] = Field(default_factory=list, description="实操节点行动清单")
+    fallback_plan: str = Field("", description="兜底/平替方案")
+    critical_deadline: str = Field("", description="关键截止日期")
+
+class AdvisorResult(BaseModel):
+    question: str = ""
+    step1: Step1SituationUnderstanding = Field(default_factory=Step1SituationUnderstanding)
+    step2: Optional[Step2GrayZone] = None
+    step3: Optional[Step3CompetitionAndPaths] = None
+    step4: Optional[Step4Timeline] = None
+    preliminary_conclusion: str = ""
+    situation_type: str = ""
+    policy_basis: str = ""
+    key_timeline: str = ""
+    required_materials: str = ""
+    risk_points: str = ""
+    next_steps: str = ""
+    pending_questions: str = ""
+    references: List[Dict] = Field(default_factory=list)
+    confidence: float = 0.5
+    plan_used: PlanType = PlanType.FREE
+
+class DiagnosisRequest(BaseModel):
+    question: str = Field(..., description="用户问题")
+    user_type: Optional[str] = Field(None, description="用户类型")
+    district: Optional[str] = Field(None, description="地区")
+    child_age: Optional[int] = Field(None, description="孩子年龄")
+    current_stage: Optional[str] = Field(None, description="当前学段")
+    openid: str = Field("", description="微信openid（可选）")
+    plan: PlanType = PlanType.FREE
+    conversation_history: Optional[List[Dict]] = Field(None, description="对话历史[{role,content}]")
+    stage: Optional[str] = Field(None, description="用户选定的升学学段: xiaoshengchu/youshengxiao/suiqian/zhongkao")
+
+class DiagnosisResult(BaseModel):
+    request: DiagnosisRequest = Field(default_factory=DiagnosisRequest, description="原始请求")
+    result: Dict = Field(default_factory=dict, description="诊断结果")
+    credits_used: int = Field(0, description="消耗点数")
+    credits_remaining: int = Field(0, description="剩余点数")
+    created_at: str = Field(default_factory=lambda: datetime.now().isoformat(), description="创建时间")
+
+class FeedbackRequest(BaseModel):
+    question: str = ""
+    scenario: str = ""
+    feedback_type: str = Field(..., description="accurate/inaccurate")
+    correction: str = ""
+    timestamp: str = ""
+
+class RouteResult(BaseModel):
+    scenario: ScenarioType = ScenarioType.UNKNOWN
+    confidence: float = 0.0
+
+class HealthResponse(BaseModel):
+    status: str = "ok"
+    version: str = "2.0.0"
+    wiki_pages_count: int = 0
+    index_loaded: bool = False
+    engine: str = "advisor-v2"
+
+class JargonRequest(BaseModel):
+    term: str = Field(..., description="要翻译的行话")
+
+class JargonResult(BaseModel):
+    term: str = ""
+    plain: str = Field("", description="白话")
+    scenario: str = Field("", description="使用场景")
+    policy_ref: str = Field("", description="政策依据")

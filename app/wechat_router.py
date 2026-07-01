@@ -25,7 +25,7 @@ from .payment import (
 
 logger = logging.getLogger("k12_rocket.wechat_router")
 
-router = APIRouter(prefix="/wechat", tags=["wechat"])
+router = APIRouter(tags=["wechat"])
 
 from pathlib import Path
 

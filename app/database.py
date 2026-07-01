@@ -14,6 +14,10 @@ from typing import Optional, Dict, Any, List, Tuple
 
 logger = logging.getLogger(__name__)
 
+from sqlalchemy.orm import declarative_base
+Base = declarative_base()
+
+
 PROJECT_ROOT = Path(__file__).parent.parent
 DB_FILE = PROJECT_ROOT / "data" / "shengxuewa.db"
 
@@ -165,6 +169,67 @@ def init_db() -> None:
             ('basic', 9.90, '基础诊断：学校匹配与政策解读', datetime('now'), datetime('now')),
             ('advanced', 29.90, '高级诊断：个性化升学方案', datetime('now'), datetime('now')),
             ('premium', 99.90, '尊享诊断：一对一专家咨询', datetime('now'), datetime('now'))
+        """)
+        
+        # === 新增合规与业务表 ===
+        
+        # 家庭画像表（独立于 users.data JSON）
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS profiles (
+            openid TEXT PRIMARY KEY,
+            stage TEXT,
+            hukou_type TEXT,
+            hukou_district TEXT,
+            live_district TEXT,
+            social_security TEXT,
+            school_type TEXT,
+            extra_data TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (openid) REFERENCES users(openid)
+        )
+        """)
+        
+        # 诊断报告存储表
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS diagnosis_reports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            openid TEXT NOT NULL,
+            stage TEXT,
+            result_json TEXT NOT NULL,
+            report_title TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (openid) REFERENCES users(openid)
+        )
+        """)
+        
+        # 审计日志表（合规要求）
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS audit_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            openid TEXT,
+            action TEXT NOT NULL,
+            endpoint TEXT,
+            ip_address TEXT,
+            user_agent TEXT,
+            request_body TEXT,
+            response_status INTEGER,
+            created_at TEXT NOT NULL
+        )
+        """)
+        
+        # 内容安全日志表
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS content_safety_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            openid TEXT,
+            direction TEXT NOT NULL,
+            original_text TEXT,
+            filtered_text TEXT,
+            triggered_words TEXT,
+            action_taken TEXT,
+            created_at TEXT NOT NULL
+        )
         """)
         
         conn.commit()

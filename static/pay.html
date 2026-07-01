@@ -6,10 +6,10 @@
   <meta name="description" content="升级点灯蛙升学参谋 PRO — 解锁8段深度诊断报告">
   <title>升级套餐 · 点灯蛙</title>
   <link rel="icon" href="/static/assets/logo-mono.png" type="image/png">
-  <link rel="stylesheet" href="/static/css/tokens.css?v=20260701d">
-  <link rel="stylesheet" href="/static/css/base.css?v=20260701d">
-  <link rel="stylesheet" href="/static/css/components.css?v=20260701d">
-  <link rel="stylesheet" href="/static/css/pages.css?v=20260701d">
+  <link rel="stylesheet" href="/static/css/tokens.css?v=20260701e">
+  <link rel="stylesheet" href="/static/css/base.css?v=20260701e">
+  <link rel="stylesheet" href="/static/css/components.css?v=20260701e">
+  <link rel="stylesheet" href="/static/css/pages.css?v=20260701e">
 </head>
 <body x-data="payPage()" x-init="init()" x-cloak>
 
@@ -27,6 +27,32 @@
   <div class="pay-header">
     <h2 style="font-size:24px;color:var(--color-primary-dark);">💎 升级 PRO</h2>
     <p style="font-size:14px;color:var(--color-text-secondary);">解锁8段深度诊断报告 + 升学路径分析</p>
+  </div>
+
+  <!-- ¥9.9 首月体验（邀请码专属） -->
+  <div class="pay-card" style="margin-bottom:16px;border:2px dashed var(--color-accent);position:relative;">
+    <div style="position:absolute;top:-10px;left:50%;transform:translateX(-50%);background:var(--color-accent);color:white;font-size:11px;padding:2px 12px;border-radius:10px;font-weight:600;">邀请码专属</div>
+    <div class="plan-header">
+      <div>
+        <span class="plan-name" style="color:var(--color-accent);">🎯 首月体验</span>
+        <p style="font-size:12px;color:var(--color-text-secondary);margin-top:4px;">仅限新用户 · 邀请码激活</p>
+      </div>
+      <div class="plan-price">¥9.9<span class="period">/首月</span></div>
+    </div>
+    <ul class="plan-features">
+      <li>PRO月付全部权益（1个月）</li>
+      <li>8段深度诊断报告</li>
+      <li>升学路径候选对比（冲刺/主战场/兜底）</li>
+      <li>灰色地带与风险分析</li>
+      <li>到期后可续费PRO月付/年付</li>
+    </ul>
+    <div style="margin-bottom:8px;">
+      <input type="text" x-model="trialCode" placeholder="输入邀请码激活¥9.9体验" class="input" style="width:100%;margin-bottom:8px;font-size:14px;">
+    </div>
+    <button class="btn btn-cta btn-block btn-lg" @click="redeemTrial()" :disabled="paying || !trialCode.trim()" style="background:var(--color-accent);">
+      <span x-show="!paying">激活¥9.9首月体验</span>
+      <span x-show="paying">激活中…</span>
+    </button>
   </div>
 
   <!-- PRO 月付 -->
@@ -156,9 +182,9 @@
   <p style="margin-top:8px;">© 2026 点灯蛙·成都升学参谋 · 不是代你学，是启你悟</p>
 </footer>
 
-<script src="/static/js/store.js?v=20260701d" defer></script>
-<script src="/static/js/api.js?v=20260701d" defer></script>
-<script src="/static/js/pay.js?v=20260701d" defer></script>
-<script src="/static/js/alpine.min.js?v=20260701d" defer></script>
+<script src="/static/js/store.js?v=20260701e" defer></script>
+<script src="/static/js/api.js?v=20260701e" defer></script>
+<script src="/static/js/pay.js?v=20260701e" defer></script>
+<script src="/static/js/alpine.min.js?v=20260701e" defer></script>
 </body>
 </html>

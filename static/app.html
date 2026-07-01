@@ -6,10 +6,10 @@
   <meta name="description" content="点灯蛙升学参谋 — 成都K12升学政策研判工具">
   <title>升学参谋 · 点灯蛙</title>
   <link rel="icon" href="/static/assets/logo-mono.png" type="image/png">
-  <link rel="stylesheet" href="/static/css/tokens.css?v=20260701d">
-  <link rel="stylesheet" href="/static/css/base.css?v=20260701d">
-  <link rel="stylesheet" href="/static/css/components.css?v=20260701d">
-  <link rel="stylesheet" href="/static/css/pages.css?v=20260701d">
+  <link rel="stylesheet" href="/static/css/tokens.css?v=20260701e">
+  <link rel="stylesheet" href="/static/css/base.css?v=20260701e">
+  <link rel="stylesheet" href="/static/css/components.css?v=20260701e">
+  <link rel="stylesheet" href="/static/css/pages.css?v=20260701e">
 </head>
 <body>
 <div id="app" x-data="appPage()" x-init="init()" x-cloak>
@@ -104,8 +104,11 @@
                 <div class="profile-item"><span class="label">居住区</span><span class="value" x-text="profile.liveDistrict || '未填写'"></span></div>
                 <div class="profile-item"><span class="label">社保</span><span class="value" x-text="profile.socialSecurity || '未填写'"></span></div>
               </div>
-              <template x-if="diagnosis.diagnosisResult?.conclusion">
-                <div style="margin-top:12px;padding:8px 12px;border-radius:8px;background:var(--color-success-bg);color:var(--color-success);font-size:14px;font-weight:500;" x-text="diagnosis.diagnosisResult.conclusion"></div>
+              <template x-if="diagnosis.diagnosisResult?.preliminary_conclusion">
+                <div style="margin-top:12px;padding:8px 12px;border-radius:8px;background:var(--color-success-bg);color:var(--color-success);font-size:14px;font-weight:500;" x-text="diagnosis.diagnosisResult.preliminary_conclusion"></div>
+              </template>
+              <template x-if="diagnosis.diagnosisResult?.situation_type">
+                <div style="margin-top:8px;font-size:13px;color:var(--color-text-secondary);" x-text="diagnosis.diagnosisResult.situation_type"></div>
               </template>
             </div>
 
@@ -115,10 +118,15 @@
                 ⚡ Step2 · 灰色地带分析
                 <span class="lock-badge">🔒 PRO</span>
               </div>
-              <template x-if="diagnosis.diagnosisResult?.grayArea">
-                <div style="font-size:14px;line-height:1.6;" x-html="diagnosis.diagnosisResult.grayArea"></div>
+              <template x-if="diagnosis.diagnosisResult?.step2">
+                <div style="font-size:14px;line-height:1.6;">
+                  <p style="margin-bottom:8px;"><strong>政策原文：</strong><span x-text="diagnosis.diagnosisResult.step2.policy_text"></span></p>
+                  <p style="margin-bottom:8px;color:var(--color-danger);"><strong>保守解读：</strong><span x-text="diagnosis.diagnosisResult.step2.conservative_read"></span></p>
+                  <p style="margin-bottom:8px;color:var(--color-success);"><strong>灵活解读：</strong><span x-text="diagnosis.diagnosisResult.step2.aggressive_read"></span></p>
+                  <p style="font-size:12px;color:var(--color-text-tertiary);">温差类型：<span x-text="diagnosis.diagnosisResult.step2.zone_type"></span> | 置信度：<span x-text="diagnosis.diagnosisResult.step2.confidence"></span></p>
+                </div>
               </template>
-              <template x-if="!diagnosis.diagnosisResult?.grayArea">
+              <template x-if="!diagnosis.diagnosisResult?.step2">
                 <div style="text-align:center;padding:12px;">
                   <p style="font-size:13px;color:var(--color-text-secondary);margin-bottom:8px;">解锁政策原文与实际执行的温差分析</p>
                   <a href="/pay" class="btn btn-cta btn-sm">解锁完整分析</a>
@@ -126,16 +134,95 @@
               </template>
             </div>
 
-            <!-- 行动清单 -->
-            <template x-if="diagnosis.diagnosisResult?.actionItems">
+            <!-- 适用政策依据 -->
+            <template x-if="diagnosis.diagnosisResult?.policy_basis">
               <div class="card-flat" style="margin-bottom:12px;">
-                <div class="report-header">📋 行动清单</div>
-                <template x-for="(item, idx) in diagnosis.diagnosisResult.actionItems" :key="idx">
-                  <div class="checklist-item" :class="{ 'checked': item.done }" @click="toggleChecklist(idx)">
-                    <div class="check-box">✓</div>
-                    <span class="check-text" x-text="item.text"></span>
-                  </div>
-                </template>
+                <div class="report-header">📜 适用政策依据</div>
+                <div style="font-size:14px;line-height:1.6;color:var(--color-text-secondary);" x-html="formatMessage(diagnosis.diagnosisResult.policy_basis)"></div>
+              </div>
+            </template>
+
+            <!-- 升学路径方案 (PRO) -->
+            <div class="card-flat" style="margin-bottom:12px;border-left:3px solid var(--color-magic);">
+              <div class="report-header">
+                🗺️ 升学路径方案
+                <span class="lock-badge">🔒 PRO</span>
+              </div>
+              <template x-if="diagnosis.diagnosisResult?.step3">
+                <div style="font-size:14px;line-height:1.6;">
+                  <template x-if="diagnosis.diagnosisResult.step3.recommended_combo">
+                    <p style="margin-bottom:8px;padding:8px 12px;border-radius:8px;background:var(--color-primary-bg);color:var(--color-primary-dark);font-weight:500;" x-text="'推荐方案：' + diagnosis.diagnosisResult.step3.recommended_combo"></p>
+                  </template>
+                  <template x-for="(path, idx) in (diagnosis.diagnosisResult.step3.paths || [])" :key="idx">
+                    <div style="margin-bottom:10px;padding:10px;border-radius:8px;background:var(--color-bg-secondary);">
+                      <div style="font-weight:600;margin-bottom:4px;">
+                        <span x-text="path.path_name"></span>
+                        <span style="margin-left:8px;font-size:12px;" x-text="path.competition"></span>
+                      </div>
+                      <p style="font-size:13px;color:var(--color-text-secondary);margin-bottom:4px;" x-text="'资格：' + path.eligibility"></p>
+                      <p style="font-size:13px;color:var(--color-text-secondary);margin-bottom:4px;" x-text="'关键要求：' + path.key_requirement"></p>
+                      <p x-show="path.risk" style="font-size:13px;color:var(--color-danger);" x-text="'风险：' + path.risk"></p>
+                    </div>
+                  </template>
+                  <template x-if="diagnosis.diagnosisResult.step3.overall_assessment">
+                    <p style="font-size:13px;color:var(--color-text-secondary);margin-top:8px;" x-text="diagnosis.diagnosisResult.step3.overall_assessment"></p>
+                  </template>
+                </div>
+              </template>
+              <template x-if="!diagnosis.diagnosisResult?.step3">
+                <div style="text-align:center;padding:12px;">
+                  <p style="font-size:13px;color:var(--color-text-secondary);margin-bottom:8px;">解锁冲刺/主战场/兜底三层路径方案</p>
+                  <a href="/pay" class="btn btn-cta btn-sm">解锁路径分析</a>
+                </div>
+              </template>
+            </div>
+
+            <!-- 关键风险提示 -->
+            <template x-if="diagnosis.diagnosisResult?.risk_points">
+              <div class="card-flat" style="margin-bottom:12px;border-left:3px solid var(--color-danger);">
+                <div class="report-header">⚠️ 关键风险提示</div>
+                <div style="font-size:14px;line-height:1.6;color:var(--color-danger);" x-html="formatMessage(diagnosis.diagnosisResult.risk_points)"></div>
+              </div>
+            </template>
+
+            <!-- 行动时间线 -->
+            <div class="card-flat" style="margin-bottom:12px;">
+              <div class="report-header">📅 行动时间线</div>
+              <template x-if="diagnosis.diagnosisResult?.key_timeline">
+                <div style="font-size:14px;line-height:1.6;margin-bottom:8px;" x-html="formatMessage(diagnosis.diagnosisResult.key_timeline)"></div>
+              </template>
+              <template x-if="diagnosis.diagnosisResult?.step4?.action_items && diagnosis.diagnosisResult.step4.action_items.length > 0">
+                <div>
+                  <template x-for="(item, idx) in diagnosis.diagnosisResult.step4.action_items" :key="idx">
+                    <div class="checklist-item" :class="{ 'checked': item.done }" @click="toggleChecklist(idx)">
+                      <div class="check-box">✓</div>
+                      <div style="flex:1;">
+                        <span class="check-text" x-text="item.action"></span>
+                        <span x-show="item.deadline" style="font-size:12px;color:var(--color-danger);margin-left:8px;" x-text="'⏰ ' + item.deadline"></span>
+                        <span x-show="item.importance" style="font-size:12px;color:var(--color-text-tertiary);margin-left:8px;" x-text="item.importance"></span>
+                      </div>
+                    </div>
+                  </template>
+                  <template x-if="diagnosis.diagnosisResult?.step4?.fallback_plan">
+                    <p style="font-size:13px;color:var(--color-text-secondary);margin-top:8px;padding:8px;border-radius:6px;background:var(--color-bg-secondary);"><strong>备选方案：</strong><span x-text="diagnosis.diagnosisResult.step4.fallback_plan"></span></p>
+                  </template>
+                </div>
+              </template>
+            </div>
+
+            <!-- 需准备材料 -->
+            <template x-if="diagnosis.diagnosisResult?.required_materials">
+              <div class="card-flat" style="margin-bottom:12px;">
+                <div class="report-header">📋 需准备材料</div>
+                <div style="font-size:14px;line-height:1.6;color:var(--color-text-secondary);" x-html="formatMessage(diagnosis.diagnosisResult.required_materials)"></div>
+              </div>
+            </template>
+
+            <!-- 待确认问题 -->
+            <template x-if="diagnosis.diagnosisResult?.pending_questions">
+              <div class="card-flat" style="margin-bottom:12px;border-left:3px solid var(--color-warning);">
+                <div class="report-header">❓ 待确认问题</div>
+                <div style="font-size:14px;line-height:1.6;color:var(--color-text-secondary);" x-html="formatMessage(diagnosis.diagnosisResult.pending_questions)"></div>
               </div>
             </template>
 
@@ -379,9 +466,9 @@
 
 </div>
 
-<script src="/static/js/store.js?v=20260701d" defer></script>
-<script src="/static/js/api.js?v=20260701d" defer></script>
-<script src="/static/js/app.js?v=20260701d" defer></script>
-<script src="/static/js/alpine.min.js?v=20260701d" defer></script>
+<script src="/static/js/store.js?v=20260701e" defer></script>
+<script src="/static/js/api.js?v=20260701e" defer></script>
+<script src="/static/js/app.js?v=20260701e" defer></script>
+<script src="/static/js/alpine.min.js?v=20260701e" defer></script>
 </body>
 </html>

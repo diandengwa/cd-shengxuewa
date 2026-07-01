@@ -2,7 +2,6 @@
 四步裁决框架 v2.0 — 点灯蛙核心
 Step1 情况理解 → Step2 灰色地带判断 → Step3 竞争烈度+路径推荐 → Step4 时间线+补救
 免费层: Step1+基础8段输出 | 付费层: Step1-4完整输出
-付费模式重构 — 按次诊断计费方案
 """
 
 import os
@@ -10,8 +9,10 @@ import json
 import logging
 import re
 import httpx
-from typing import List, Optional, Dict, Any
+from typing import List, Optional
 from .models import (
+
+
     DiagnosisRequest, DiagnosisResult, ScenarioType,
     Step1SituationUnderstanding, Step2GrayZone,
     Step3CompetitionAndPaths, Step4Timeline, PathOption,
@@ -20,7 +21,6 @@ from .models import (
 from .loaders import wiki_loader, gt_loader, lottery_loader, knowledge_card_loader
 from .router import route_question, has_gray_zone, extract_districts
 from app.url_extractor import extract_official_url_from_content
-from .credits import check_credits, deduct_credit  # 新增导入：配额检查与扣减
 
 logger = logging.getLogger("k12_rocket")
 
@@ -132,417 +132,893 @@ def build_wiki_context(candidate_pages: List[str], max_chars: int = 12000) -> st
             max_page_chars = max_chars - total_chars - len(header)
             if max_page_chars < 200:
                 break
-            page_content = content[:max_page_chars]
-            context_parts.append(header + page_content)
-            total_chars += len(header) + len(page_content)
-    return "\n\n".join(context_parts)
+            truncated = content[:max_page_chars]
+            if len(content) > max_page_chars:
+                truncated += "\n...(内容过长已截断)"
+            context_parts.append(header + truncated)
+            total_chars += len(header) + len(truncated)
+
+    return "\n\n---\n\n".join(context_parts)
 
 
-async def call_deepseek(messages: List[Dict[str, str]], system_prompt: str = "", temperature: float = 0.7, max_tokens: int = 4096) -> str:
-    """调用DeepSeek API"""
-    if not DEEPSEEK_API_KEY:
-        logger.error("DEEPSEEK_API_KEY 未配置")
-        raise ValueError("AI服务未配置，请联系管理员")
 
-    headers = {
-        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-        "Content-Type": "application/json",
-    }
+def build_knowledge_context(question, scenario="", max_chars=8000):
+    """Build RAG context from dual-core knowledge base.
 
-    payload = {
-        "model": DEEPSEEK_MODEL,
-        "messages": [{"role": "system", "content": system_prompt}] + messages if system_prompt else messages,
-        "temperature": temperature,
-        "max_tokens": max_tokens,
-    }
-
-    try:
-        async with httpx.AsyncClient(timeout=DEEPSEEK_TIMEOUT) as client:
-            response = await client.post(
-                f"{DEEPSEEK_BASE_URL}/v1/chat/completions",
-                headers=headers,
-                json=payload,
-            )
-            response.raise_for_status()
-            result = response.json()
-            content = result["choices"][0]["message"]["content"]
-            return content
-    except httpx.TimeoutException:
-        logger.error("DeepSeek API 请求超时")
-        raise TimeoutError("AI服务响应超时，请稍后重试")
-    except httpx.HTTPStatusError as e:
-        logger.error(f"DeepSeek API HTTP错误: {e.response.status_code} - {e.response.text}")
-        raise RuntimeError(f"AI服务异常 (HTTP {e.response.status_code})")
-    except Exception as e:
-        logger.error(f"DeepSeek API 调用失败: {str(e)}")
-        raise RuntimeError(f"AI服务调用失败: {str(e)}")
-
-
-async def step1_situation_understanding(question: str, family_info: Optional[FamilyInfo] = None) -> Step1SituationUnderstanding:
-    """Step1: 情况理解 — 分析用户问题，提取关键信息"""
-    system_prompt = """你是一位资深的成都K12升学顾问，擅长分析家长/学生的升学问题。
-请仔细分析用户的升学问题，提取关键信息，并以JSON格式返回分析结果。
-
-返回格式：
-{
-    "scenario": "幼升小|小升初|中考|高考|转学|其他",
-    "grade": "幼儿园|小学|初中|高中|其他",
-    "key_points": ["关键点1", "关键点2", ...],
-    "missing_info": ["缺失信息1", "缺失信息2", ...],
-    "urgency": "紧急|较紧急|一般",
-    "summary": "对用户情况的简要总结（50字以内）"
-}"""
-
-    user_message = f"用户问题：{question}\n"
-    if family_info:
-        user_message += f"家庭信息：{json.dumps(family_info.dict(), ensure_ascii=False)}"
-
-    try:
-        content = await call_deepseek(
-            messages=[{"role": "user", "content": user_message}],
-            system_prompt=system_prompt,
-            temperature=0.3,
-            max_tokens=1024,
-        )
-        # 尝试解析JSON
-        json_match = re.search(r'\{.*\}', content, re.DOTALL)
-        if json_match:
-            result = json.loads(json_match.group())
-            return Step1SituationUnderstanding(**result)
-        else:
-            logger.warning("Step1 返回非JSON格式，使用默认值")
-            return Step1SituationUnderstanding(
-                scenario=ScenarioType.OTHER,
-                grade="其他",
-                key_points=["无法解析用户问题"],
-                missing_info=[],
-                urgency="一般",
-                summary="请提供更详细的升学信息"
-            )
-    except Exception as e:
-        logger.error(f"Step1 处理失败: {str(e)}")
-        raise
-
-
-async def step2_gray_zone(question: str, step1_result: Step1SituationUnderstanding) -> Step2GrayZone:
-    """Step2: 灰色地带判断 — 识别政策灰色地带和风险点"""
-    system_prompt = """你是一位精通成都K12升学政策的专家，擅长识别政策灰色地带和潜在风险。
-基于用户问题和情况理解结果，分析是否存在灰色地带和风险点。
-
-返回JSON格式：
-{
-    "has_gray_zone": true/false,
-    "gray_zone_description": "灰色地带描述（如有）",
-    "risk_points": [
-        {"risk": "风险描述", "level": "高|中|低", "suggestion": "建议"}
-    ],
-    "policy_reference": "相关政策依据",
-    "overall_assessment": "整体评估结论"
-}"""
-
-    user_message = f"用户问题：{question}\n情况分析：{json.dumps(step1_result.dict(), ensure_ascii=False)}"
-
-    try:
-        content = await call_deepseek(
-            messages=[{"role": "user", "content": user_message}],
-            system_prompt=system_prompt,
-            temperature=0.4,
-            max_tokens=2048,
-        )
-        json_match = re.search(r'\{.*\}', content, re.DOTALL)
-        if json_match:
-            result = json.loads(json_match.group())
-            return Step2GrayZone(**result)
-        else:
-            logger.warning("Step2 返回非JSON格式，使用默认值")
-            return Step2GrayZone(
-                has_gray_zone=False,
-                gray_zone_description="",
-                risk_points=[],
-                policy_reference="",
-                overall_assessment="未发现明显灰色地带"
-            )
-    except Exception as e:
-        logger.error(f"Step2 处理失败: {str(e)}")
-        raise
-
-
-async def step3_competition_and_paths(question: str, step1_result: Step1SituationUnderstanding, wiki_context: str = "") -> Step3CompetitionAndPaths:
-    """Step3: 竞争烈度+路径推荐 — 分析竞争情况并推荐升学路径"""
-    system_prompt = """你是一位资深的成都K12升学规划师，擅长分析竞争态势并推荐最优升学路径。
-基于用户情况和政策知识，分析竞争烈度并给出具体路径建议。
-
-返回JSON格式：
-{
-    "competition_level": "激烈|较激烈|中等|较缓和|缓和",
-    "competition_analysis": "竞争态势详细分析",
-    "recommended_paths": [
-        {
-            "name": "路径名称",
-            "description": "路径详细描述",
-            "difficulty": "高|中|低",
-            "success_rate": "成功率预估（百分比）",
-            "key_actions": ["关键行动1", "关键行动2"],
-            "timeline": "时间节点建议"
-        }
-    ],
-    "alternative_paths": [
-        {
-            "name": "备选路径名称",
-            "description": "备选路径描述",
-            "difficulty": "高|中|低",
-            "success_rate": "成功率预估"
-        }
-    ],
-    "key_factors": ["关键因素1", "关键因素2"],
-    "overall_recommendation": "综合推荐意见"
-}"""
-
-    user_message = f"用户问题：{question}\n情况分析：{json.dumps(step1_result.dict(), ensure_ascii=False)}"
-    if wiki_context:
-        user_message += f"\n政策参考：{wiki_context[:3000]}"
-
-    try:
-        content = await call_deepseek(
-            messages=[{"role": "user", "content": user_message}],
-            system_prompt=system_prompt,
-            temperature=0.5,
-            max_tokens=4096,
-        )
-        json_match = re.search(r'\{.*\}', content, re.DOTALL)
-        if json_match:
-            result = json.loads(json_match.group())
-            # 转换路径列表
-            paths = [PathOption(**p) for p in result.get("recommended_paths", [])]
-            alt_paths = [PathOption(**p) for p in result.get("alternative_paths", [])]
-            return Step3CompetitionAndPaths(
-                competition_level=CompetitionLevel(result.get("competition_level", "中等")),
-                competition_analysis=result.get("competition_analysis", ""),
-                recommended_paths=paths,
-                alternative_paths=alt_paths,
-                key_factors=result.get("key_factors", []),
-                overall_recommendation=result.get("overall_recommendation", "")
-            )
-        else:
-            logger.warning("Step3 返回非JSON格式，使用默认值")
-            return Step3CompetitionAndPaths(
-                competition_level=CompetitionLevel.MEDIUM,
-                competition_analysis="无法分析竞争态势",
-                recommended_paths=[],
-                alternative_paths=[],
-                key_factors=[],
-                overall_recommendation="请提供更详细的信息以获得精准建议"
-            )
-    except Exception as e:
-        logger.error(f"Step3 处理失败: {str(e)}")
-        raise
-
-
-async def step4_timeline(question: str, step1_result: Step1SituationUnderstanding, step3_result: Step3CompetitionAndPaths) -> Step4Timeline:
-    """Step4: 时间线+补救 — 制定详细时间表和补救方案"""
-    system_prompt = """你是一位经验丰富的成都K12升学规划师，擅长制定详细的升学时间表和补救方案。
-基于用户情况和推荐路径，制定可执行的时间线和补救措施。
-
-返回JSON格式：
-{
-    "timeline_events": [
-        {
-            "date": "日期",
-            "event": "事件描述",
-            "importance": "高|中|低",
-            "action_required": "需要采取的行动",
-            "deadline": "截止日期"
-        }
-    ],
-    "remedial_measures": [
-        {
-            "issue": "问题描述",
-            "measure": "补救措施",
-            "urgency": "紧急|较紧急|一般",
-            "expected_outcome": "预期效果"
-        }
-    ],
-    "critical_milestones": ["关键里程碑1", "关键里程碑2"],
-    "contingency_plans": ["备选方案1", "备选方案2"],
-    "overall_timeline_summary": "整体时间线总结"
-}"""
-
-    user_message = f"用户问题：{question}\n情况分析：{json.dumps(step1_result.dict(), ensure_ascii=False)}\n推荐路径：{json.dumps(step3_result.dict(), ensure_ascii=False)}"
-
-    try:
-        content = await call_deepseek(
-            messages=[{"role": "user", "content": user_message}],
-            system_prompt=system_prompt,
-            temperature=0.4,
-            max_tokens=4096,
-        )
-        json_match = re.search(r'\{.*\}', content, re.DOTALL)
-        if json_match:
-            result = json.loads(json_match.group())
-            return Step4Timeline(**result)
-        else:
-            logger.warning("Step4 返回非JSON格式，使用默认值")
-            return Step4Timeline(
-                timeline_events=[],
-                remedial_measures=[],
-                critical_milestones=[],
-                contingency_plans=[],
-                overall_timeline_summary="无法生成时间线"
-            )
-    except Exception as e:
-        logger.error(f"Step4 处理失败: {str(e)}")
-        raise
-
-
-async def diagnose(request: DiagnosisRequest) -> DiagnosisResult:
+    Queries the KnowledgeCardLoader which reads JSON cards produced by
+    opc_knowledge_builder.py from:
+      - 0-golden-interpretations/ : Policy fact cards
+      - 0-problems/ : Parent pain-point cards
     """
-    四步诊断主流程
-    付费模式重构：在深度诊断前检查credits，消耗1次credits，不足时返回付费引导
-    """
-    question = request.question
-    family_info = request.family_info
-    user_id = request.user_id  # 用户ID，用于credits检查
+    if not knowledge_card_loader.is_loaded():
+        return ""
+    return knowledge_card_loader.get_context_text(
+        question=question,
+        scenario=scenario,
+        max_chars=max_chars,
+    )
 
-    # 过滤禁止词
-    question = filter_prohibited(question)
 
-    # Step1: 情况理解（免费层）
-    logger.info(f"开始Step1诊断: {question[:50]}...")
-    step1_result = await step1_situation_understanding(question, family_info)
+# ============================================================
+# Step1: 情况理解 — 规则引擎提取
+# ============================================================
 
-    # 基础8段输出（免费层）
-    base_output = f"""📋 **情况理解**
-- 场景：{step1_result.scenario.value if hasattr(step1_result.scenario, 'value') else step1_result.scenario}
-- 年级：{step1_result.grade}
-- 关键点：{'、'.join(step1_result.key_points)}
-- 紧急程度：{step1_result.urgency}
-- 总结：{step1_result.summary}
+def step1_understand(question: str, route) -> Step1SituationUnderstanding:
+    """从自然语言提取结构化家庭画像 — 增强容错版 v2.1"""
+    family = FamilyInfo()
+    districts = extract_districts(question)
+    q = question  # shorthand
 
-💡 **基础建议**
-1. 请确保信息采集按时完成
-2. 关注官方政策发布渠道
-3. 建议进行深度诊断获取完整升学方案"""
+    # ── 户籍区县 ──────────────────────────────
+    # 口语/书面: 户口在/户口/户籍/户籍地/户籍所在/户籍所在地/户藉/户口所在地/户口属于/户口挂靠/户口落在/落户/落户在/上户/上的户
+    HOUSEHOLD_KWS = [
+        "户口在", "户口", "户籍", "户籍地", "户籍所在", "户籍所在地",
+        "户口所在地", "户口属于", "户口挂靠", "户口落在", "落户在", "落户",
+        "上户", "上的户", "户在地", "户口迁", "户口迁入",
+    ]
+    # 居住区县口语: 住在/住/居住/租房/现居/现住/住在/生活/定居/租住在/暂住
+    RESIDENCE_KWS = [
+        "住在", "住", "居住", "租房", "现居", "现住", "生活", "定居",
+        "租住在", "租住", "暂住", "租的房子", "租的房", "住的", "家在",
+    ]
+    # 社保区县口语: 社保/社保在/交社保/缴社保/社保交在/社保缴在/社保买在
+    SOCIAL_SECURITY_KWS = [
+        "社保", "社保在", "交社保", "缴社保", "社保交在", "社保缴在",
+        "社保买在", "五险一金", "养老保",
+    ]
+    # 学籍区县口语: 学籍在/学籍/就读于/在读/就学
+    SCHOOL_DISTRICT_KWS = [
+        "学籍在", "学籍", "就读于", "就读", "在读", "就学",
+    ]
 
-    # 检查是否需要深度诊断（付费层）
-    if not request.deep_diagnosis:
-        # 仅返回免费层结果
-        return DiagnosisResult(
-            step1=step1_result,
-            base_output=base_output,
-            is_paid=False,
-            message="免费诊断完成，如需深度分析请开启深度诊断"
-        )
+    for d in districts:
+        if any(kw in q for kw in HOUSEHOLD_KWS):
+            if not family.household_district:
+                family.household_district = d + "区"
+        if any(kw in q for kw in RESIDENCE_KWS):
+            if not family.residence_district:
+                family.residence_district = d + "区"
+        if any(kw in q for kw in SOCIAL_SECURITY_KWS):
+            if not family.social_security_district:
+                family.social_security_district = d + "区"
+        # 学籍区县 → 如果还没有户籍区，优先填入
+        if any(kw in q for kw in SCHOOL_DISTRICT_KWS):
+            if not family.household_district:
+                family.household_district = d + "区"
+            if not family.residence_district:
+                family.residence_district = d + "区"
 
-    # ===== 付费模式重构：深度诊断前检查credits =====
-    if user_id:
-        # 检查用户credits是否充足
-        credits_ok, credits_msg = await check_credits(user_id, required=1)
-        if not credits_ok:
-            logger.info(f"用户 {user_id} credits不足，返回付费引导")
-            return DiagnosisResult(
-                step1=step1_result,
-                base_output=base_output,
-                is_paid=False,
-                message=credits_msg,  # 返回付费引导信息
-                need_payment=True,     # 标记需要付费
-                payment_info={
-                    "required_credits": 1,
-                    "current_credits": 0,
-                    "message": credits_msg
-                }
-            )
-        # credits充足，消耗1次
-        deduct_success, deduct_msg = await deduct_credit(user_id, amount=1, description=f"深度诊断: {question[:50]}")
-        if not deduct_success:
-            logger.error(f"用户 {user_id} credits扣减失败: {deduct_msg}")
-            return DiagnosisResult(
-                step1=step1_result,
-                base_output=base_output,
-                is_paid=False,
-                message="credits扣减失败，请稍后重试",
-                need_payment=False,
-                error=deduct_msg
-            )
-        logger.info(f"用户 {user_id} 消耗1次credits，开始深度诊断")
+    # Fallback: 只提到一个区且无关键词 → 默认为户籍区
+    if districts and not family.household_district and not family.residence_district:
+        family.household_district = districts[0] + "区"
+
+    # ── 随迁判断 ──────────────────────────────
+    TRANSFER_KWS = [
+        "随迁", "随迁子女", "外来务工", "外来人员",
+        "外省", "外地", "外市", "非本市", "非成都", "非成都户籍", "非本地",
+        "流动人口", "进城务工", "外来人口", "异地",
+        "户口不在成都", "户口不在本地", "外地户口", "外省户口",
+        "不是成都人", "不是本地人", "老家不在成都",
+        "外地来成都", "来成都打工", "来蓉务工", "来蓉",
+    ]
+    family.is_transfer = any(kw in q for kw in TRANSFER_KWS)
+
+    # ── 居住证 ──────────────────────────────
+    RESIDENCE_PERMIT_KWS = ["居住证", "暂住证", "居住登记"]
+    if any(kw in q for kw in RESIDENCE_PERMIT_KWS):
+        family.residence_permit = True
+        m = re.search(r"(?:居住证|暂住证).*?(\d+)\s*个?月", q)
+        if m:
+            family.residence_permit_months = int(m.group(1))
+
+    # ── 社保月数 ──────────────────────────────
+    # 支持: "社保16个月" / "社保高新16个月" / "交了16个月社保" / "社保交了1年半"
+    m = re.search(r"(?:社保|五险一金|养老保).*?(\d+)\s*个?月", q)
+    if m:
+        family.social_security_months = int(m.group(1))
     else:
-        # 未登录用户，提示需要登录
-        logger.warning("未登录用户尝试深度诊断")
-        return DiagnosisResult(
-            step1=step1_result,
-            base_output=base_output,
-            is_paid=False,
-            message="请先登录后再进行深度诊断",
-            need_payment=False,
-            error="用户未登录"
-        )
+        # "交了XX个月社保" / "社保交了XX个月"
+        m = re.search(r"(?:交了|缴了|买了)\s*(\d+)\s*个?月\s*(?:社保|五险)", q)
+        if m:
+            family.social_security_months = int(m.group(1))
+        else:
+            # "X年X个月社保" → 换算
+            m = re.search(r"(?:社保|五险).*?(\d+)\s*年(?:又|零|加|)?(\d+)\s*个?月", q)
+            if m:
+                family.social_security_months = int(m.group(1)) * 12 + int(m.group(2))
 
-    # ===== 深度诊断流程（付费层） =====
+    # ── 孩子年龄 ──────────────────────────────
+    # 主正则: 前缀+数字+岁
+    AGE_PREFIX = r"(?:孩子|小孩|今年|年龄|岁数|娃|娃儿|宝宝|宝|儿|闺女|儿子|女儿|小朋友|今年已经|今年满|已经|满|今年\d+岁|小娃|宝贝|幺儿|小娃儿)"
+    m = re.search(AGE_PREFIX + r".*?(\d+)\s*岁", q)
+    if m and 3 <= int(m.group(1)) <= 18:
+        family.child_age = int(m.group(1))
+    else:
+        # 反向: "XX岁的孩子/小孩/娃"
+        m = re.search(r"(\d+)\s*岁\s*(?:的)?(?:孩子|小孩|娃|小朋友|宝宝|宝|儿|闺女|儿子|女儿|小娃|小娃儿)", q)
+        if m and 3 <= int(m.group(1)) <= 18:
+            family.child_age = int(m.group(1))
+        else:
+            # Fallback: 纯"XX岁" + 升学上下文
+            enrollment_context = any(kw in q for kw in [
+                "入学", "升学", "报名", "读书", "上学", "就读", "毕业",
+                "小学", "初中", "高中", "幼升小", "小升初", "初升高", "中考",
+                "摇号", "划片", "学位", "报名", "招生", "户籍", "户口",
+                "随迁", "社保", "居住证", "学区", "对口",
+            ])
+            m = re.search(r"(\d+)\s*岁", q)
+            if m and 3 <= int(m.group(1)) <= 18 and enrollment_context:
+                family.child_age = int(m.group(1))
+
+    # ── 学段/年级 ──────────────────────────────
+    GRADE_MAP = {
+        # 幼升小
+        "幼儿园大班": "幼升小", "大班": "幼升小", "学前班": "幼升小",
+        "幼升小": "幼升小", "幼儿园毕业": "幼升小", "上小学": "幼升小",
+        "读小学": "小学", "小学入学": "幼升小",
+        # 小学年级
+        "一年级": "小学一年级", "二年级": "小学二年级", "三年级": "小学三年级",
+        "四年级": "小学四年级", "五年级": "小学五年级", "六年级": "小学六年级",
+        "小学": "小学",
+        # 小升初
+        "小升初": "小升初", "小学毕业": "小升初", "小学升初中": "小升初",
+        "六年级毕业": "小升初", "马上初中": "小升初", "即将升初中": "小升初",
+        "升初中": "小升初", "上初中": "小升初", "考初中": "小升初",
+        # 初中年级
+        "初一": "初一", "七年级": "初一", "初中一年级": "初一",
+        "初二": "初二", "八年级": "初二", "初中二年级": "初二",
+        "初三": "初三", "九年级": "初三", "初中三年级": "初三", "初中毕业": "初三",
+        # 初升高/中考
+        "初升高": "中考", "中考": "中考", "高中入学": "中考",
+        "升高中": "中考", "考高中": "中考", "上高中": "中考",
+        # 高中年级
+        "高一": "高一", "高二": "高二", "高三": "高三",
+    }
+    for grade_kw, grade_val in GRADE_MAP.items():
+        if grade_kw in q:
+            family.child_grade = grade_val
+            break
+
+    # ── 区域推断增强 ──────────────────────────────
+    if not family.residence_district and family.social_security_district:
+        family.residence_district = family.social_security_district
+    if not family.residence_district and not family.household_district and districts:
+        family.residence_district = districts[0] + "区"
+
+    # ── 目标学校 ──────────────────────────────
+    known_schools = [
+        "七中高新", "石室北湖", "树德光华", "树德外国语",
+        "成都二中", "盐道街小学", "泡小", "实小", "龙江路",
+        "成师附小", "胜西", "草小",
+        "七中育才", "石室联中", "树德实验", "七中初中",
+        "棕北中学", "川大附中", "铁中", "十二中", "列五中学",
+        "华西中学", "玉林中学", "泡桐树", "天府七中",
+    ]
+    for s in known_schools:
+        if s in q:
+            family.target_schools.append(s)
+
+    # ── 目标类型 ──────────────────────────────
+    TARGET_TYPE_KWS = {
+        "大摇号": ["大摇号", "市属摇号", "市级摇号", "大摇"],
+        "划片": ["划片", "对口", "就近入学", "多校划片", "单校划片", "学区", "对口直升"],
+        "民办": ["民办", "私立", "民校", "私立学校", "民办学校"],
+        "随迁": ["随迁"],
+    }
+    for ttype, kws in TARGET_TYPE_KWS.items():
+        if any(kw in q for kw in kws):
+            family.target_type = ttype
+            break
+    if not family.target_type and family.is_transfer:
+        family.target_type = "随迁"
+    elif not family.target_type and "幼升小" in q:
+        family.target_type = "划片"
+
+    # ── 缺失信息 ──────────────────────────────
+    missing = []
+    if family.is_transfer:
+        if not family.social_security_months:
+            missing.append("社保连续缴纳月数")
+        if not family.residence_permit:
+            missing.append("是否有居住证")
+        if not family.residence_district:
+            missing.append("居住所在区县")
+    if not family.household_district and not family.is_transfer:
+        missing.append("户籍所在区县")
+    if not family.child_age:
+        missing.append("孩子年龄")
+
+    # ── 概括 ──────────────────────────────
+    parts = []
+    if family.is_transfer:
+        parts.append("随迁子女家庭")
+    if family.household_district:
+        parts.append(f"户籍{family.household_district}")
+    if family.residence_district:
+        parts.append(f"居住{family.residence_district}")
+    if family.social_security_months:
+        parts.append(f"社保{family.social_security_months}个月")
+    if family.child_age:
+        parts.append(f"孩子{family.child_age}岁")
+    if family.child_grade:
+        parts.append(f"{family.child_grade}")
+    summary = "，".join(parts) if parts else "需要更多信息"
+
+    return Step1SituationUnderstanding(
+        family_profile=family,
+        scenario=route.scenario,
+        scenario_confidence=route.confidence,
+        summary=summary,
+        missing_info=missing,
+    )
+
+
+# ============================================================
+# Step2: 灰色地带判断 — LLM生成
+# ============================================================
+
+STEP2_PROMPT = """你是一位成都升学政策专家。你的核心任务是找出用户情况中的"灰色地带"——即政策文本与实际执行之间存在温差的地方。
+
+## ⛔ 严禁编造
+- 绝不编造政策文号，只引用知识库中列出的真实政策标题
+- 不确定的内容必须标注置信度
+
+## ⚠️ 重要：灰色地带几乎总是存在的
+成都升学政策存在大量灰色地带，几乎每个家庭的情况都涉及。不要轻易判断"无灰色地带"。
+常见的灰色地带包括：
+- 随迁子女：社保"连续缴纳"是累计还是连续？中断补缴算不算？各区审核松紧差异极大
+- 社保时长：政策写6个月，但部分区实际查12个月才给学位（而非统筹）
+- 居住证：有的区认电子证，有的要求实体证，过渡期新旧并存
+- 划片：同一街道可能被划入不同学区，且每年微调
+- 摇号：民办补录和空余计划的执行口径各区不同
+- 材料："合法稳定住所"的证明材料各校要求宽严不一
+
+只有当问题纯粹是概念解释（如"大摇号是什么"）且不涉及具体资格判断时，才可以输出"无灰色地带"。
+
+## 对话上下文
+{conversation_history}
+
+## 用户问题
+{question}
+
+## 家庭画像
+{family_summary}
+
+## 相关政策内容
+{wiki_context}
+
+## 已验证的Ground Truth事实
+{gt_context}
+
+## 灰色地带类型
+- 文字模糊：政策表述含糊，不同解读得出不同结论
+- 执行差异：政策写的是一套，实际执行是另一套（如某些区查得严、某些区灵活）
+- 区县差异：同一政策在不同区县执行口径不同
+- 时效差异：政策过渡期，新旧政策衔接有模糊地带
+
+## 输出格式（严格JSON，不要输出其他内容）
+```json
+{{
+  "policy_text": "政策原文关键表述",
+  "conservative_read": "保守版解释（严格按字面，对家长最不利）",
+  "aggressive_read": "激进版解释（实际执行可能更灵活，对家长更有利）",
+  "zone_type": "温差类型",
+  "confidence": "置信度(🟢🟡🟠🔴)",
+  "source": "信息来源"
+}}
+```
+
+如果没有灰色地带（仅限纯概念解释类问题）：
+```json
+{{"policy_text": "", "conservative_read": "", "aggressive_read": "", "zone_type": "无灰色地带", "confidence": "🟢", "source": ""}}
+```"""
+
+
+# ============================================================
+# Step3: 竞争烈度+路径推荐 — LLM生成
+# ============================================================
+
+STEP3_PROMPT = """你是一位成都升学路径规划专家。基于以下信息，为用户推荐升学路径组合。
+
+## ⛔ 严禁编造
+- 绝不编造数据，摇号率只使用下方历史数据
+- 不确定的内容必须标注置信度
+
+## 对话上下文
+{conversation_history}
+
+## 用户问题
+{question}
+
+## 家庭画像
+{family_summary}
+
+## 历史摇号数据
+{lottery_data}
+
+## 相关政策内容
+{wiki_context}
+
+## 已验证的Ground Truth事实
+{gt_context}
+
+## 竞争烈度等级
+- 🔥🔥🔥🔥🔥 极度激烈：摇中率<3%，不建议作为唯一主战场
+- 🔥🔥🔥🔥 激烈：摇中率3-8%，值得参与但不能指望
+- 🔥🔥🔥 中等：摇中率8-20%，可作为冲刺位
+- 🔥🔥 相对宽松：摇中率>20%，可以作为保底
+
+## 重要提醒
+- 2024年起官方不再汇总公布报名人数和中签率
+- 竞争烈度基于历史数据评估，仅供参考
+- 选择民办摇号=放弃公办划片资格（不可逆）
+
+## 输出格式（严格JSON）
+```json
+{{
+  "paths": [
+    {{
+      "path_name": "路径名称",
+      "competition": "🔥🔥🔥🔥🔥",
+      "competition_note": "竞争说明",
+      "eligibility": "符合/可能符合/不符合",
+      "eligibility_confidence": "🟢🟡🟠🔴",
+      "key_requirement": "关键条件",
+      "risk": "风险提示"
+    }}
+  ],
+  "recommended_combo": "冲刺位+主战场+兜底 组合建议",
+  "overall_assessment": "总体评估"
+}}
+```"""
+
+
+# ============================================================
+# Step4: 时间线+补救方案 — LLM生成
+# ============================================================
+
+STEP4_PROMPT = """你是一位成都升学时间规划专家。基于以下信息，为用户制定时间线和补救方案。
+
+## ⛔ 严禁编造
+- 绝不编造具体日期，只使用知识库中提到的时间节点
+- 不确定的日期必须标注“以官方公告为准”
+
+## 对话上下文
+{conversation_history}
+
+## 用户问题
+{question}
+
+## 家庭画像
+{family_summary}
+
+## 推荐路径
+{path_summary}
+
+## 相关政策内容（含时间节点）
+{wiki_context}
+
+## 输出格式（严格JSON）
+```json
+{{
+  "action_items": [
+    {{"deadline": "截止日期", "action": "需要做的事", "importance": "必须/建议/可选", "note": "备注"}}
+  ],
+  "fallback_plan": "如果主路径失败的补救/平替方案",
+  "critical_deadline": "最近的关键截止日期"
+}}
+```"""
+
+
+# ============================================================
+# 统一8段输出Prompt（免费层+付费层基础）
+# ============================================================
+
+UNIVERSAL_PROMPT = """你是"点灯蛙"，一个专业的成都K12升学参谋。你的任务是根据家长的问题和提供的政策知识，生成结构化的8段评估报告。
+
+## 🚨 政策年份优先级铁律
+1. 凡是2026年已发布的政策，一律以2026年政策为准
+2. 只有2026年尚未发布的内容，才可参考2025年数据，必须标注"参考2025年数据，以2026年官方后续公告为准"
+3. 绝不允许将2025年政策当作最新政策引用
+
+## 🛡️ 合规红线
+1. 绝不暗示"走关系""内部渠道""内部指标"等违规途径
+2. 绝不给"100%录取""保证录取"等绝对承诺
+3. 所有建议必须基于官方公开政策，标注出处
+4. 2024年后官方不再汇总公布中签率，绝不展示无来源摇中率
+
+## ⛔ 严禁编造政策文号
+1. 绝不编造"成招考委〔2026〕X号"之类的不实文号
+2. 引用政策时只使用知识库中提供的真实政策标题
+3. 如果不确定具体文号，只写政策标题即可，宁可不写文号也不能编造
+4. 政策依据必须来自下方【知识库内容】中列出的具体文件，不要引用知识库中不存在的文件
+
+## 💬 对话上下文
+以下是之前对话的历史记录，请结合上下文理解用户问题，不要重复询问已经回答过的信息：
+{conversation_history}
+
+## 用户问题
+{question}
+
+## 家庭画像
+{family_summary}
+
+## 知识库内容
+{wiki_context}
+
+## 输出格式（严格JSON）
+```json
+{{
+  "preliminary_conclusion": "1. 初步结论：1-3句话判断",
+  "situation_type": "2. 情况分类：家庭属于哪种升学类型",
+  "policy_basis": "3. 适用政策：只引用知识库中列出的政策标题，不编造文号",
+  "key_timeline": "4. 关键时间节点：📅标注每个日期，按时间排序",
+  "required_materials": "5. 需要准备的材料：分必需/可选",
+  "risk_points": "6. 主要风险点：⚠️标注每条风险",
+  "next_steps": "7. 下一步建议：冲刺/稳健/保底三层方案",
+  "pending_questions": "8. 需确认问题：只需要真正缺失的关键信息，不要重复已知信息"
+}}
+```"""
+
+
+# ============================================================
+# LLM调用
+# ============================================================
+
+async def call_llm(system_prompt: str, user_prompt: str) -> str:
+    """调用DeepSeek LLM"""
+    if not DEEPSEEK_API_KEY:
+        logger.warning("[LLM] API Key未配置，使用模板回退")
+        return ""
+
     try:
-        # 构建Wiki上下文
-        wiki_context = ""
-        try:
-            candidate_pages = route_question(question)
-            if candidate_pages:
-                wiki_context = build_wiki_context(candidate_pages)
-        except Exception as e:
-            logger.warning(f"构建Wiki上下文失败: {str(e)}")
-
-        # Step2: 灰色地带判断
-        logger.info("开始Step2诊断")
-        step2_result = await step2_gray_zone(question, step1_result)
-
-        # Step3: 竞争烈度+路径推荐
-        logger.info("开始Step3诊断")
-        step3_result = await step3_competition_and_paths(question, step1_result, wiki_context)
-
-        # Step4: 时间线+补救
-        logger.info("开始Step4诊断")
-        step4_result = await step4_timeline(question, step1_result, step3_result)
-
-        # 构建完整输出
-        full_output = f"""{base_output}
-
-🔍 **灰色地带分析**
-{step2_result.overall_assessment}
-{'⚠️ 风险提示：' + '；'.join([r['risk'] for r in step2_result.risk_points]) if step2_result.risk_points else '✅ 未发现明显风险'}
-
-📊 **竞争态势分析**
-- 竞争烈度：{step3_result.competition_level.value if hasattr(step3_result.competition_level, 'value') else step3_result.competition_level}
-- 分析：{step3_result.competition_analysis}
-
-🎯 **推荐路径**
-{chr(10).join([f"- {p.name}（难度：{p.difficulty}，成功率：{p.success_rate}）" for p in step3_result.recommended_paths]) if step3_result.recommended_paths else '暂无推荐路径'}
-
-📅 **时间线规划**
-{chr(10).join([f"- {e.date}：{e.event}" for e in step4_result.timeline_events]) if step4_result.timeline_events else '暂无时间线信息'}
-
-🆘 **补救措施**
-{chr(10).join([f"- {m['issue']}：{m['measure']}" for m in step4_result.remedial_measures]) if step4_result.remedial_measures else '暂无补救措施'}
-
-💎 **综合建议**
-{step3_result.overall_recommendation}"""
-
-        return DiagnosisResult(
-            step1=step1_result,
-            step2=step2_result,
-            step3=step3_result,
-            step4=step4_result,
-            base_output=base_output,
-            full_output=full_output,
-            is_paid=True,
-            message="深度诊断完成"
-        )
-
+        async with httpx.AsyncClient(timeout=float(DEEPSEEK_TIMEOUT)) as client:
+            resp = await client.post(
+                f"{DEEPSEEK_BASE_URL}/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": DEEPSEEK_MODEL,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    "temperature": 0.3,
+                    "max_tokens": 3000,
+                },
+            )
+            data = resp.json()
+            if "choices" in data and data["choices"]:
+                return data["choices"][0].get("message", {}).get("content", "")
+            else:
+                logger.error(f"[LLM] 响应异常: {data}")
+                return ""
     except Exception as e:
-        logger.error(f"深度诊断失败: {str(e)}")
-        # 如果深度诊断失败，但已经扣除了credits，需要记录日志以便后续处理
-        if user_id:
-            logger.warning(f"用户 {user_id} 深度诊断失败，credits已消耗，需人工核查")
-        return DiagnosisResult(
-            step1=step1_result,
-            base_output=base_output,
-            is_paid=False,
-            message=f"深度诊断失败: {str(e)}",
-            need_payment=False,
-            error=str(e)
+        logger.error(f"[LLM] 调用失败: {e}")
+        return ""
+
+
+def parse_json_safely(text: str) -> dict:
+    """安全解析LLM返回的JSON"""
+    if not text:
+        return {}
+    # 提取```json ... ```中的内容
+    m = re.search(r'```(?:json)?\s*\n?(.*?)\n?```', text, re.DOTALL)
+    if m:
+        text = m.group(1)
+    try:
+        result = json.loads(text)
+        if isinstance(result, list):
+            return result[0] if result and isinstance(result[0], dict) else {}
+        return result if isinstance(result, dict) else {}
+    except json.JSONDecodeError:
+        # 尝试修复常见问题
+        text = text.replace('\n', '\\n').replace('\t', '\\t')
+        try:
+            result = json.loads(text)
+            if isinstance(result, list):
+                return result[0] if result and isinstance(result[0], dict) else {}
+            return result if isinstance(result, dict) else {}
+        except:
+            return {}
+
+
+# ============================================================
+# 主入口：四步裁决引擎
+# ============================================================
+
+async def generate_diagnosis(request: DiagnosisRequest, route) -> DiagnosisResult:
+    """四步裁决引擎主入口"""
+
+    question = request.question
+    plan = request.plan or PlanType.FREE
+    conversation_history = request.conversation_history or []
+
+    # 收集wiki上下文
+    wiki_context = build_wiki_context(route.candidate_pages)
+
+    # Build dual-core knowledge context (golden interpretations + pain points)
+    knowledge_context = build_knowledge_context(
+        question=question,
+        scenario=route.scenario.value if route.scenario else "",
+    )
+
+    # Merge knowledge_context into wiki_context for LLM prompts
+    combined_context = wiki_context
+    if knowledge_context:
+        combined_context = wiki_context + "\n\n---\n\n## Dual-Core Knowledge Base\n\n" + knowledge_context
+
+    # GT校准（第一轮：仅基于问题）
+    gt_results = []
+    if gt_loader.is_loaded():
+        gt_result = gt_loader.validate(question, route.scenario.value if route.scenario else "")
+        if gt_result.get("verified") is not None:
+            gt_results.append(gt_result)
+
+    # ---- Step1: 情况理解（所有用户） ----
+    step1 = step1_understand(question, route)
+    
+    # 如果有对话历史，尝试从历史中补充家庭画像缺失信息
+    if conversation_history:
+        for msg in conversation_history:
+            if msg.get("role") == "user":
+                hist_text = msg.get("content", "")
+                # 补充随迁标志
+                if not step1.family_profile.is_transfer:
+                    transfer_kws = ["随迁", "随迁子女", "外省", "外地", "外市", "非本市", "非成都", "非成都户籍", "非本地", "流动人口", "进城务工", "外来务工", "外来人员", "外地户口", "外省户口", "户口不在成都", "户口不在本地", "不是成都人", "不是本地人", "暂住", "来蓉务工"]
+                    if any(kw in hist_text for kw in transfer_kws):
+                        step1.family_profile.is_transfer = True
+                        if not step1.family_profile.target_type:
+                            step1.family_profile.target_type = "随迁"
+                # 补充社保月数
+                if not step1.family_profile.social_security_months:
+                    m = re.search(r"社保.*?(\d+)\s*个?月", hist_text)
+                    if m:
+                        step1.family_profile.social_security_months = int(m.group(1))
+                # 补充区县信息
+                hist_districts = extract_districts(hist_text)
+                for d in hist_districts:
+                    if any(kw in hist_text for kw in ["户籍", "户口", "户籍地", "户籍所在", "落户", "户口所在", "户口属于", "户口落在", "户口迁"]):
+                        if not step1.family_profile.household_district:
+                            step1.family_profile.household_district = d + "区"
+                    if any(kw in hist_text for kw in ["住", "居住", "租房", "现居", "现住", "租住", "暂住", "生活", "定居", "家在"]):
+                        if not step1.family_profile.residence_district:
+                            step1.family_profile.residence_district = d + "区"
+                    if any(kw in hist_text for kw in ["社保", "交社保", "缴社保", "五险一金"]):
+                        if not step1.family_profile.social_security_district:
+                            step1.family_profile.social_security_district = d + "区"
+                # 补充年龄
+                if not step1.family_profile.child_age:
+                    m = re.search(r"(?:孩子|小孩|今年|年龄|岁数|娃|娃儿|宝宝|宝|儿|闺女|儿子|女儿|小朋友|今年已经|今年满|已经|满|幺儿).*?(\d+)\s*岁", hist_text)
+                    if m:
+                        step1.family_profile.child_age = int(m.group(1))
+                # 补充居住证
+                if "居住证" in hist_text and not step1.family_profile.residence_permit:
+                    step1.family_profile.residence_permit = True
+                    m = re.search(r"居住证.*?(\d+)\s*个?月", hist_text)
+                    if m:
+                        step1.family_profile.residence_permit_months = int(m.group(1))
+                # 补充学段
+                if not step1.family_profile.child_grade:
+                    GRADE_MAP_HIST = {
+                        "幼儿园大班": "幼升小", "大班": "幼升小", "幼升小": "幼升小",
+                        "小升初": "小升初", "小学毕业": "小升初", "升初中": "小升初", "上初中": "小升初",
+                        "初升高": "中考", "中考": "中考", "升高中": "中考", "上高中": "中考",
+                        "初一": "初一", "初二": "初二", "初三": "初三",
+                        "高一": "高一", "高二": "高二", "高三": "高三",
+                    }
+                    for gk, gv in GRADE_MAP_HIST.items():
+                        if gk in hist_text:
+                            step1.family_profile.child_grade = gv
+                            break
+
+                # 如果社保区已设置但居住区未设置，推断居住区=社保区
+        if not step1.family_profile.residence_district and step1.family_profile.social_security_district:
+            step1.family_profile.residence_district = step1.family_profile.social_security_district
+        # 重新生成summary
+        parts = []
+        if step1.family_profile.is_transfer:
+            parts.append("随迁子女家庭")
+        if step1.family_profile.household_district:
+            parts.append(f"户籍{step1.family_profile.household_district}")
+        if step1.family_profile.residence_district:
+            parts.append(f"居住{step1.family_profile.residence_district}")
+        if step1.family_profile.social_security_months:
+            parts.append(f"社保{step1.family_profile.social_security_months}个月")
+        if step1.family_profile.child_age:
+            parts.append(f"孩子{step1.family_profile.child_age}岁")
+        if step1.family_profile.child_grade:
+            parts.append(f"{step1.family_profile.child_grade}")
+        step1.summary = "，".join(parts) if parts else "需要更多信息"
+        # 重新计算缺失信息
+        missing = []
+        if step1.family_profile.is_transfer:
+            if not step1.family_profile.social_security_months:
+                missing.append("社保连续缴纳月数")
+            if not step1.family_profile.residence_permit:
+                missing.append("是否有居住证")
+            if not step1.family_profile.residence_district:
+                missing.append("居住所在区县")
+        if not step1.family_profile.household_district and not step1.family_profile.is_transfer:
+            missing.append("户籍所在区县")
+        if not step1.family_profile.child_age:
+            missing.append("孩子年龄")
+        step1.missing_info = missing
+    
+    family_summary = step1.summary
+
+    # GT校准（第二轮：基于家庭画像补充校准）
+    if gt_loader.is_loaded():
+        if step1.family_profile.is_transfer:
+            gt2 = gt_loader.validate("随迁子女社保", "随迁子女")
+            if gt2.get("verified") and gt2 not in gt_results:
+                gt_results.append(gt2)
+
+    # 构建GT校准文本注入付费层prompt
+    gt_context = ""
+    if gt_results:
+        gt_parts = []
+        for g in gt_results:
+            part = f"已验证事实：{g.get('fact', '')}"
+            if g.get('common_error'):
+                part += f"\n常见错误：{g['common_error']}"
+            if g.get('correction'):
+                part += f"\n正确说法：{g['correction']}"
+            part += f"\n置信度：{g.get('confidence', '🟡')}"
+            gt_parts.append(part)
+        gt_context = "\n\n".join(gt_parts)
+
+    # 构建对话历史文本
+    history_text = ""
+    if conversation_history:
+        history_lines = []
+        for msg in conversation_history[-10:]:  # 最近10轮
+            role = "用户" if msg.get("role") == "user" else "参谋"
+            history_lines.append(f"{role}: {msg.get('content', '')}")
+        history_text = "\n".join(history_lines)
+    else:
+        history_text = "（这是本轮对话的第一条消息）"
+
+    # ---- 8段基础输出（所有用户，LLM生成） ----
+    universal_prompt = UNIVERSAL_PROMPT.format(
+        question=question,
+        family_summary=family_summary,
+        wiki_context=combined_context[:10000],
+        conversation_history=history_text,
+    )
+
+    llm_output = await call_llm("你是成都K12升学参谋点灯蛙。", universal_prompt)
+    base_result = parse_json_safely(llm_output)
+
+    # 应用禁止词过滤
+    for key in base_result:
+        if isinstance(base_result[key], str):
+            base_result[key] = filter_prohibited(base_result[key])
+
+    # 构建基础结果
+    result = DiagnosisResult(
+        question=question,
+        scenario=route.scenario,
+        preliminary_conclusion=base_result.get("preliminary_conclusion", ""),
+        situation_type=base_result.get("situation_type", step1.summary),
+        policy_basis=base_result.get("policy_basis", ""),
+        key_timeline=base_result.get("key_timeline", ""),
+        required_materials=base_result.get("required_materials", ""),
+        risk_points=base_result.get("risk_points", ""),
+        next_steps=base_result.get("next_steps", ""),
+        pending_questions=base_result.get("pending_questions", ""),
+        step1=step1,
+        confidence=route.confidence,
+        plan_used=plan,
+    )
+
+    # 添加引用
+    for page_path in route.candidate_pages[:5]:
+        info = wiki_loader.get_page_info(page_path)
+        content = wiki_loader.get_page_content(page_path)
+        if info:
+            result.references.append({
+                "path": page_path,
+                "title": info.get("title", ""),
+                "source_grade": info.get("source_grade", ""),
+                "excerpt": (content[:200] if content else "")[:200],
+                "official_url": extract_official_url_from_content(content, info.get("title", "")),
+            })
+
+    # ---- 付费层独占：Step2-4 ----
+    if plan in (PlanType.LITE, PlanType.MAX):
+        import asyncio as _asyncio
+
+        async def dummy_task():
+            return ""
+
+        tasks = []
+        run_step2 = has_gray_zone(question)
+
+        # 1. Step2: 灰色地带任务
+        if run_step2:
+            step2_prompt = STEP2_PROMPT.format(
+                question=question,
+                family_summary=family_summary,
+                wiki_context=combined_context[:6000],
+                conversation_history=history_text,
+                gt_context=gt_context,
+            )
+            tasks.append(call_llm("你是成都升学政策灰色地带分析专家。", step2_prompt))
+        else:
+            tasks.append(dummy_task())
+
+        # 2. Step3: 竞争与路径推荐任务
+        lottery_data = "暂无历史摇号数据"
+        if lottery_loader.is_loaded() and lottery_loader.data:
+            lottery_data = json.dumps(lottery_loader.data[-10:], ensure_ascii=False, indent=2)
+
+        step3_prompt = STEP3_PROMPT.format(
+            question=question,
+            family_summary=family_summary,
+            lottery_data=lottery_data,
+            wiki_context=combined_context[:6000],
+            conversation_history=history_text,
+            gt_context=gt_context,
         )
+        tasks.append(call_llm("你是成都升学路径规划专家。", step3_prompt))
+
+        # 3. Step4: 时间线规划任务
+        step4_prompt = STEP4_PROMPT.format(
+            question=question,
+            family_summary=family_summary,
+            path_summary=family_summary,  # 先用family_summary，Step3结果未出
+            wiki_context=combined_context[:6000],
+            conversation_history=history_text,
+        )
+        tasks.append(call_llm("你是成都升学时间规划专家。", step4_prompt))
+
+        # 并行执行 Step 2, 3, 4 的 LLM 调用
+        outputs = await _asyncio.gather(*tasks)
+
+        # 解析 Step2（含输出安全过滤）
+        if run_step2 and outputs[0]:
+            step2_data = parse_json_safely(outputs[0])
+            if step2_data and isinstance(step2_data, dict) and step2_data.get("zone_type") != "无灰色地带":
+                # 对所有字符串字段应用禁止词过滤
+                for k, v in step2_data.items():
+                    if isinstance(v, str):
+                        step2_data[k] = filter_prohibited(v)
+                result.step2 = Step2GrayZone(
+                    policy_text=step2_data.get("policy_text", ""),
+                    conservative_read=step2_data.get("conservative_read", ""),
+                    aggressive_read=step2_data.get("aggressive_read", ""),
+                    zone_type=step2_data.get("zone_type", ""),
+                    confidence=step2_data.get("confidence", "🟡"),
+                    source=step2_data.get("source", ""),
+                )
+
+        # 解析 Step3（含输出安全过滤）
+        step3_output = outputs[1]
+        step3_data = parse_json_safely(step3_output)
+        if step3_data and isinstance(step3_data, dict):
+            # 对顶层字符串字段过滤
+            for k, v in step3_data.items():
+                if isinstance(v, str):
+                    step3_data[k] = filter_prohibited(v)
+            paths = []
+            for p in step3_data.get("paths", []):
+                # 对每条路径的字符串字段过滤
+                for k, v in p.items():
+                    if isinstance(v, str):
+                        p[k] = filter_prohibited(v)
+                comp = p.get("competition", "🔥🔥🔥")
+                try:
+                    comp_enum = CompetitionLevel(comp)
+                except ValueError:
+                    comp_enum = CompetitionLevel.MODERATE
+                paths.append(PathOption(
+                    path_name=p.get("path_name", ""),
+                    competition=comp_enum,
+                    competition_note=p.get("competition_note", ""),
+                    eligibility=p.get("eligibility", ""),
+                    eligibility_confidence=p.get("eligibility_confidence", "🟡"),
+                    key_requirement=p.get("key_requirement", ""),
+                    risk=p.get("risk", ""),
+                ))
+            result.step3 = Step3CompetitionAndPaths(
+                paths=paths,
+                recommended_combo=step3_data.get("recommended_combo", ""),
+                overall_assessment=step3_data.get("overall_assessment", ""),
+            )
+
+        # 解析 Step4（含输出安全过滤）
+        step4_output = outputs[2]
+        step4_data = parse_json_safely(step4_output)
+        if step4_data and isinstance(step4_data, dict):
+            # 对所有字符串字段过滤
+            for k, v in step4_data.items():
+                if isinstance(v, str):
+                    step4_data[k] = filter_prohibited(v)
+            # 对 action_items 中每条的字符串字段过滤
+            for item in step4_data.get("action_items", []):
+                if isinstance(item, dict):
+                    for k, v in item.items():
+                        if isinstance(v, str):
+                            item[k] = filter_prohibited(v)
+            result.step4 = Step4Timeline(
+                action_items=step4_data.get("action_items", []),
+                fallback_plan=step4_data.get("fallback_plan", ""),
+                critical_deadline=step4_data.get("critical_deadline", ""),
+            )
+
+    return result
+
+
+async def translate_jargon(term: str) -> dict:
+    """黑话翻译 — 升级版三级回退机制"""
+    # 1. 精准匹配
+    result = JARGON_TABLE.get(term)
+    if result:
+        return {
+            "term": term,
+            "plain": result["plain"],
+            "scenario": result["scenario"],
+            "policy_ref": result["policy_ref"],
+        }
+        
+    # 2. 模糊/子串匹配
+    for key, val in JARGON_TABLE.items():
+        if term in key or key in term:
+            return {
+                "term": key,
+                "plain": val["plain"],
+                "scenario": val["scenario"],
+                "policy_ref": val["policy_ref"],
+            }
+            
+    # 3. 大模型翻译兜底
+    prompt = f"""
+    请你作为成都K12升学政策与黑话领域的权威专家，智能翻译并解析以下家长提及的升学黑话术语。
+    
+    待翻译术语: "{term}"
+    
+    请严格按照 JSON 格式输出以下字段，不要输出任何其他解释文本，也不要包含 markdown 代码块标记：
+    {{
+        "plain": "通俗易懂的术语解释（100字以内，包括其背后的真实含义、对家长的建议和合规风险提醒，如果有的话）",
+        "scenario": "适用升学场景，如：幼升小/小升初/中考/转学，若无法判断填未知",
+        "policy_ref": "该术语在政策法规中的对应概念或规范名称（如没有，根据常识指引政策出处）"
+    }}
+    """
+    
+    try:
+        response = await call_llm("你是成都升学政策黑话翻译器。", prompt)
+        parsed = parse_json_safely(response)
+        if parsed and isinstance(parsed, dict) and "plain" in parsed:
+            return {
+                "term": term,
+                "plain": parsed.get("plain", "智能解析失败"),
+                "scenario": parsed.get("scenario", "未知"),
+                "policy_ref": parsed.get("policy_ref", "无"),
+            }
+    except Exception as e:
+        logger.error(f"大模型翻译黑话发生异常: {e}")
+        
+    return {"term": term, "plain": "暂未收录此术语，智能解析不可用", "scenario": "", "policy_ref": ""}

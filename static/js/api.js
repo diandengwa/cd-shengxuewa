@@ -105,6 +105,27 @@ const API = {
     return res.data?.price_tiers || res.price_tiers || res;
   },
 
+  // 邀请码兑换（¥9.9首月体验）
+  async redeemInvite(code) {
+    return this.request('/api/invite/redeem', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    });
+  },
+
+  // 创建微信支付订单
+  async createWechatOrder(plan, method = 'JSAPI') {
+    return this.request('/api/pay/wechat/create', {
+      method: 'POST',
+      body: JSON.stringify({ plan, method }),
+    });
+  },
+
+  // 合规：模型信息公示
+  async getModelInfo() {
+    return this.request('/api/compliance/model-info');
+  },
+
   // 后端 GET /payment/plans → 套餐列表
   // 响应: { success, data: { plans: { basic, standard, premium } } }
   async getPlans() {

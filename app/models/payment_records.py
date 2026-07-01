@@ -166,9 +166,9 @@ class PaymentRecord(Base):
     # 索引
     # ============================================================
     __table_args__ = (
-        Index("idx_payment_user_status", "user_id", "status", name="idx_payment_user_status"),
-        Index("idx_payment_created_at", "created_at", name="idx_payment_created_at"),
-        Index("idx_payment_operation_type", "operation_type", name="idx_payment_operation_type"),
+        Index("idx_payment_user_status", "user_id", "status"),
+        Index("idx_payment_created_at", "created_at"),
+        Index("idx_payment_operation_type", "operation_type"),
     )
 
     # ============================================================

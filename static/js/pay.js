@@ -8,6 +8,8 @@ function payPage() {
     paying: false,
     priceTiers: [],
     faqOpen: 0,
+    trialCode: '',
+    inviteCode: '',
 
     init() {
       // 加载定价信息
@@ -91,6 +93,33 @@ function payPage() {
 
     toggleFaq(idx) {
       this.faqOpen = this.faqOpen === idx ? 0 : idx;
+    },
+
+    async redeemTrial() {
+      if (!this.trialCode.trim()) return;
+
+      if (!Alpine.store('app').user.isLoggedIn) {
+        if (confirm('请先通过微信登录后再激活体验套餐。是否前往登录？')) {
+          API.redirectToAuth();
+        }
+        return;
+      }
+
+      this.paying = true;
+      try {
+        const res = await API.redeemInvite(this.trialCode.trim());
+        if (res.success) {
+          alert('激活成功！您已获得' + (res.message || 'PRO首月体验') + '。');
+          Alpine.store('app').user.plan = res.plan || 'LITE';
+          window.location.href = '/app?tab=diagnosis';
+        } else {
+          alert('激活失败：' + (res.message || '邀请码无效或已使用'));
+          this.paying = false;
+        }
+      } catch (e) {
+        this.paying = false;
+        alert('激活请求失败：' + e.message);
+      }
     }
   };
 }

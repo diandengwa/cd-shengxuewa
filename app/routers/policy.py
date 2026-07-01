@@ -6,6 +6,7 @@
 
 import json
 import logging
+import functools
 import time
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
@@ -20,7 +21,7 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 logger = logging.getLogger("k12.policy")
 
 router = APIRouter(
-    prefix="/api/policy",
+    
     tags=["政策查询"],
     responses={404: {"description": "未找到相关政策"}},
 )
@@ -104,6 +105,7 @@ def rate_limit(max_requests: int = 60, window_seconds: int = 3600):
     limiter = RateLimiter(max_requests=max_requests, window_seconds=window_seconds)
     
     def decorator(func):
+        @functools.wraps(func)
         async def wrapper(request: Request, *args, **kwargs):
             # 获取客户端IP
             client_ip = request.client.host if request.client else "unknown"
@@ -313,16 +315,28 @@ def filter_policies(
     if year:
         filtered = [p for p in filtered if p["year"] == year]
     
-    # 关键词搜索（在标题、摘要、内容中搜索）
+    # 关键词搜索（在标题、摘要、内容中搜索，支持同义词扩展）
     if keyword:
         keyword_lower = keyword.lower()
-        filtered = [
-            p for p in filtered
-            if keyword_lower in p["title"].lower()
-            or keyword_lower in p["summary"].lower()
-            or keyword_lower in p["content"].lower()
-            or any(keyword_lower in tag.lower() for tag in p["tags"])
-        ]
+        keywords_to_check = [keyword_lower]
+        
+        # 扩展“升学”相关词汇的检索范围，包含“招生”、“入学”、“划片”等核心政策概念
+        if any(w in keyword_lower for w in ["升学", "升学政策", "小升初", "幼升小", "初升高"]):
+            keywords_to_check.extend(["招生", "入学", "划片"])
+            
+        filtered_by_kw = []
+        for p in filtered:
+            matched = False
+            for kw in keywords_to_check:
+                if (kw in p["title"].lower()
+                    or kw in p["summary"].lower()
+                    or kw in p["content"].lower()
+                    or any(kw in tag.lower() for tag in p["tags"])):
+                    matched = True
+                    break
+            if matched:
+                filtered_by_kw.append(p)
+        filtered = filtered_by_kw
     
     return filtered
 

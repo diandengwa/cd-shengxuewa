@@ -234,3 +234,20 @@ def get_user_quota_info(openid: str) -> dict:
             "diagnoses_used": 0,
             "diagnoses_total": 0
         }
+
+def update_family_info(openid: str, family_info: FamilyInfo) -> UserRecord:
+    """更新家庭信息"""
+    user = get_or_create_user(openid)
+    user.family_info = family_info
+    update_user(user)
+    return user
+
+def upgrade_plan(openid: str, new_plan: PlanType) -> UserRecord:
+    """升级套餐"""
+    user = get_or_create_user(openid)
+    old_plan = user.plan
+    user.plan = new_plan
+    user.quota.plan = new_plan
+    update_user(user)
+    logger.info(f"[Quota] 用户 {openid[:8]}... 升级套餐: {old_plan} -> {new_plan}")
+    return user

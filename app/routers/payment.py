@@ -36,7 +36,7 @@ logger = logging.getLogger("k12.payment")
 # 路由定义
 # ============================================================
 router = APIRouter(
-    prefix="/payment",
+    
     tags=["payment"],
     responses={404: {"description": "Not found"}},
 )
@@ -658,10 +658,26 @@ async def purchase_diagnoses(purchase_data: DiagnosisPurchaseRequest):
 
 @router.get("/balance/{user_id}", response_model=Dict[str, Any])
 async def get_balance(user_id: str):
-    """查询用户诊断余额"""
+    """查询用户诊断余额（新用户赠送3次免费诊断）"""
     try:
         user_data = get_user_diagnoses(user_id)
         
+        if not user_data:
+            # 新用户，初始化赠送 3 次
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            valid_until = (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
+            cursor.execute("""
+                INSERT INTO user_diagnoses 
+                (user_id, diagnoses_total, diagnoses_used, diagnoses_remaining, is_unlimited, valid_until, last_purchase)
+                VALUES (?, 3, 0, 3, 0, ?, CURRENT_TIMESTAMP)
+            """, (user_id, valid_until))
+            conn.commit()
+            conn.close()
+            
+            # 重新获取
+            user_data = get_user_diagnoses(user_id)
+            
         if not user_data:
             return {
                 "success": True,
@@ -733,6 +749,35 @@ async def get_user_orders(user_id: str, limit: int = Query(10, ge=1, le=100)):
     except Exception as e:
         logger.error(f"获取订单历史失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"获取订单历史失败: {str(e)}")
+
+@router.get("/status/{order_id}")
+async def get_order_status(order_id: str):
+    """查询订单支付状态"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # 查套餐订单
+        cursor.execute("SELECT status FROM orders WHERE order_id = ?", (order_id,))
+        row = cursor.fetchone()
+        if row:
+            status = row["status"]
+            conn.close()
+            return {"success": True, "status": status}
+            
+        # 查按次购买记录
+        cursor.execute("SELECT status FROM diagnosis_purchases WHERE order_id = ?", (order_id,))
+        row = cursor.fetchone()
+        conn.close()
+        
+        if row:
+            status = row["status"]
+            return {"success": True, "status": status}
+            
+        return {"success": False, "message": "订单不存在"}
+    except Exception as e:
+        logger.error(f"查询订单状态失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"查询订单状态失败: {str(e)}")
 
 @router.post("/notify", include_in_schema=False)
 async def payment_notify(request: Request):

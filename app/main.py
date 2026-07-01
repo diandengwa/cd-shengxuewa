@@ -64,21 +64,21 @@ from app.invite_codes import (
     confirm_order, list_codes, list_orders,
     check_order_for_openid, verify_admin,
 )
-from app.payment import wechat_prepay_order, handle_payment_success, decrypt_wechat_resource, IS_MOCK_PAY
+
 
 # ============================================================
 # 新增：支付相关路由和积分路由
 # ============================================================
-from app.payment_routes import router as payment_router
-from app.credits_routes import router as credits_router
+from app.routers.payment import router as payment_router
+# from app.routers.credits import router as credits_router  # Removed due to ORM errors
 
 # ============================================================
 # 新增：政策查询、学区查询、升学日历、升学黑话路由模块
 # ============================================================
-from app.policy_routes import router as policy_router
-from app.district_routes import router as district_router
-from app.calendar_routes import router as calendar_router
-from app.jargon_routes import router as jargon_router
+from app.routers.policy import router as policy_router
+from app.routers.district import router as district_router
+from app.routers.calendar import router as calendar_router
+from app.routers.jargon import router as jargon_router
 
 # ============================================================
 # 配置
@@ -109,7 +109,7 @@ WECHAT_PAY_API_V3_KEY = os.getenv("WECHAT_PAY_API_V3_KEY", "")
 # ============================================================
 # 积分服务初始化
 # ============================================================
-from app.credits_service import CreditsService
+from app.services.credits_service import CreditsService
 
 # 检查并创建积分服务实例
 credits_service = None
@@ -177,7 +177,7 @@ app.include_router(wechat_router, prefix="/wechat", tags=["微信"])
 app.include_router(payment_router, prefix="/payment", tags=["支付"])
 
 # 积分相关路由
-app.include_router(credits_router, prefix="/credits", tags=["积分"])
+# app.include_router(credits_router, prefix="/credits", tags=["积分"])  # Removed redundant router
 
 # 政策查询路由
 app.include_router(policy_router, prefix="/policy", tags=["政策查询"])
@@ -239,7 +239,7 @@ async def diagnose(request: Request, diagnosis_req: DiagnosisRequest):
 
     # 执行诊断
     try:
-        result = generate_diagnosis(diagnosis_req)
+        result = await generate_diagnosis(diagnosis_req)
         return result
     except Exception as e:
         logger.error(f"[Diagnose] 诊断失败: {e}")
@@ -254,7 +254,7 @@ async def diagnose(request: Request, diagnosis_req: DiagnosisRequest):
 async def translate(request: Request, jargon_req: JargonRequest):
     """升学黑话翻译"""
     try:
-        result = translate_jargon(jargon_req.text)
+        result = await translate_jargon(jargon_req.text)
         return result
     except Exception as e:
         logger.error(f"[Translate] 翻译失败: {e}")
@@ -281,6 +281,102 @@ async def submit_feedback(feedback: FeedbackRequest):
     except Exception as e:
         logger.error(f"[Feedback] 保存反馈失败: {e}")
         raise HTTPException(status_code=500, detail="反馈提交失败")
+
+
+# ============================================================
+# 邀请码兑换接口
+# ============================================================
+@app.post("/api/invite/redeem", tags=["邀请码"])
+async def api_redeem_invite_code(request: Request, body: dict = None):
+    """兑换邀请码，激活¥9.9首月体验或PRO套餐"""
+    openid = request.headers.get("X-OpenID", "")
+    if not openid:
+        raise HTTPException(status_code=401, detail="请先通过微信登录")
+
+    body = body or {}
+    code = body.get("code", "").strip()
+    if not code:
+        raise HTTPException(status_code=400, detail="请输入邀请码")
+
+    try:
+        success, message, plan_granted = redeem_code(code, openid)
+        if success:
+            logger.info(f"[Invite] 邀请码 {code} 兑换成功，用户 {openid} 获得套餐 {plan_granted}")
+            return {"success": True, "message": message, "plan": plan_granted.value if plan_granted else None}
+        else:
+            return {"success": False, "message": message}
+    except Exception as e:
+        logger.error(f"[Invite] 兑换失败: {e}")
+        raise HTTPException(status_code=500, detail="兑换服务异常")
+
+
+# ============================================================
+# 微信支付预下单接口
+# ============================================================
+@app.post("/api/pay/wechat/create", tags=["支付"])
+async def api_create_wechat_order(request: Request, body: dict = None):
+    """创建微信支付订单（JSAPI/H5/Native统一入口）"""
+    openid = request.headers.get("X-OpenID", "")
+    if not openid:
+        raise HTTPException(status_code=401, detail="请先通过微信登录")
+
+    body = body or {}
+    plan = body.get("plan", "LITE")  # LITE(月付) / MAX(年付) / TRIAL(¥9.9体验)
+    pay_method = body.get("method", "JSAPI")  # JSAPI / H5 / NATIVE
+
+    try:
+        # 使用payment模块创建统一下单
+        from app.payment import create_unified_order, IS_MOCK_PAY
+        from app.models import PlanType as PT
+
+        plan_type = PT.MAX if plan.upper() == "MAX" else PT.LITE
+        amount = 999 if plan_type == PT.MAX else 99  # 分为单位：¥9.99=999分, ¥99=9900分
+
+        # ¥9.9 体验套餐特殊处理
+        if plan.upper() == "TRIAL":
+            amount = 990  # ¥9.9 = 990分
+
+        if IS_MOCK_PAY:
+            logger.info(f"[Pay] Mock模式：用户 {openid} 创建 {plan} 订单，金额 {amount}分")
+            return {
+                "success": True,
+                "mock": True,
+                "order_id": f"mock_{datetime.now().strftime('%Y%m%d%H%M%S')}",
+                "amount": amount,
+                "message": "模拟支付模式，订单已创建",
+            }
+
+        # 真实微信支付
+        order_result = await create_unified_order(
+            openid=openid,
+            amount=amount,
+            description=f"点灯蛙升学参谋-{plan}",
+        )
+        logger.info(f"[Pay] 用户 {openid} 创建 {plan} 订单成功")
+        return {"success": True, "order": order_result}
+
+    except Exception as e:
+        logger.error(f"[Pay] 创建订单失败: {e}")
+        raise HTTPException(status_code=500, detail=f"支付服务异常: {str(e)}")
+
+
+# ============================================================
+# 合规：模型信息公示接口
+# ============================================================
+@app.get("/api/compliance/model-info", tags=["合规"])
+async def api_compliance_model_info():
+    """公示所调用的大语言模型信息（生成式AI备案要求）"""
+    return {
+        "service_name": "点灯蛙升学参谋",
+        "service_type": "基于规则匹配与模型辅助分析的升学研判工具",
+        "model_name": "DeepSeek大语言模型",
+        "model_provider": "北京深度求索人工智能基础技术研究有限公司",
+        "model_filing_number": "网信算备110108970550101240011号",
+        "usage_scope": "用户输入的家庭画像信息与公开政策数据进行上下文分析，生成个性化升学参考建议",
+        "data_training": "用户输入数据不进入模型训练，这是我们的底线承诺",
+        "content_safety": "对用户输入和模型输出进行禁止词检测，违规内容自动过滤",
+        "disclaimer": "本服务生成的内容为参考建议，不构成任何形式的录取保证或入学承诺。所有升学决策请以成都市教育局、各区教育局官方文件为准。",
+    }
 
 
 # ============================================================

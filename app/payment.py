@@ -725,3 +725,118 @@ def calculate_amount_by_diagnosis_count(count: int) -> int:
         unit_price = int(unit_price * 0.95)
 
     return count * unit_price
+
+# ============================================================
+# 微信支付V3回调辅助接口 (对接 wechat_router.py)
+# ============================================================
+
+PAYMENT_SUCCESS = "SUCCESS"
+PAYMENT_FAILED = "FAIL"
+
+def verify_payment_signature(body: str, signature: str, timestamp: str, nonce: str, serial_no: str) -> bool:
+    """验证微信支付回调的签名"""
+    headers = {
+        "Wechatpay-Signature": signature,
+        "Wechatpay-Timestamp": timestamp,
+        "Wechatpay-Nonce": nonce,
+        "Wechatpay-Serial": serial_no
+    }
+    from .wechat import _verify_v3_callback_signature
+    return _verify_v3_callback_signature(headers, body)
+
+def get_payment_config() -> dict:
+    """获取微信支付配置"""
+    return {
+        "appId": os.getenv("WECHAT_APPID", ""),
+        "mchId": os.getenv("WECHAT_MCHID", ""),
+        "notifyUrl": os.getenv("WECHAT_NOTIFY_URL", "")
+    }
+
+def process_payment_notification(callback_data: dict) -> dict:
+    """处理微信支付回调通知并更新数据库"""
+    try:
+        resource = callback_data.get("resource", {})
+        ciphertext = resource.get("ciphertext", "")
+        nonce = resource.get("nonce", "")
+        associated_data = resource.get("associated_data", "")
+        
+        if not ciphertext or not nonce:
+            logger.error("[Payment] Callback data missing resource/ciphertext/nonce")
+            return {"status": PAYMENT_FAILED, "message": "Missing resource parameters"}
+            
+        decrypted = decrypt_wechat_resource(ciphertext, nonce, associated_data)
+        if not decrypted:
+            logger.error("[Payment] Failed to decrypt callback resource")
+            return {"status": PAYMENT_FAILED, "message": "Decryption failed"}
+            
+        trade_state = decrypted.get("trade_state", "")
+        out_trade_no = decrypted.get("out_trade_no", "")
+        transaction_id = decrypted.get("transaction_id", "")
+        
+        logger.info(f"[Payment] Decrypted callback: out_trade_no={out_trade_no}, state={trade_state}")
+        
+        if trade_state == "SUCCESS" and out_trade_no:
+            import sqlite3
+            from pathlib import Path
+            db_path = Path(__file__).parent.parent / "data" / "shengxuewa.db"
+            conn = sqlite3.connect(str(db_path))
+            cursor = conn.cursor()
+            
+            try:
+                # 更新 orders 表
+                cursor.execute("""
+                    UPDATE orders 
+                    SET status = 'paid', 
+                        transaction_id = ?,
+                        paid_at = CURRENT_TIMESTAMP
+                    WHERE order_id = ? AND status = 'pending'
+                """, (transaction_id, out_trade_no))
+                
+                # 如果没有更新到，可能是在 diagnosis_purchases 表中
+                if cursor.rowcount == 0:
+                    cursor.execute("""
+                        UPDATE diagnosis_purchases 
+                        SET status = 'paid', 
+                            transaction_id = ?,
+                            paid_at = CURRENT_TIMESTAMP
+                        WHERE order_id = ? AND status = 'pending'
+                    """, (transaction_id, out_trade_no))
+                
+                # 关联更新用户的额度 (增加用户的诊断次数)
+                cursor.execute("SELECT user_id, diagnoses_count, valid_days FROM diagnosis_purchases WHERE order_id = ?", (out_trade_no,))
+                row = cursor.fetchone()
+                if row:
+                    user_id, count, valid_days = row
+                    cursor.execute("SELECT diagnoses_remaining FROM user_diagnoses WHERE user_id = ?", (user_id,))
+                    diag_row = cursor.fetchone()
+                    if diag_row:
+                        cursor.execute("""
+                            UPDATE user_diagnoses 
+                            SET diagnoses_remaining = diagnoses_remaining + ?,
+                                diagnoses_total = diagnoses_total + ?,
+                                expires_at = date('now', '+' || ? || ' days')
+                            WHERE user_id = ?
+                        """, (count, count, valid_days, user_id))
+                    else:
+                        cursor.execute("""
+                            INSERT INTO user_diagnoses (user_id, diagnoses_remaining, diagnoses_total, diagnoses_used, expires_at)
+                            VALUES (?, ?, ?, 0, date('now', '+' || ? || ' days'))
+                        """, (user_id, count, count, valid_days))
+                
+                conn.commit()
+                logger.info(f"[Payment] Successfully processed payment for order {out_trade_no}")
+                return {"status": PAYMENT_SUCCESS, "message": "Payment success processed"}
+            except Exception as e:
+                conn.rollback()
+                logger.error(f"[Payment] Database error updating order {out_trade_no}: {e}")
+                return {"status": PAYMENT_FAILED, "message": f"Database error: {e}"}
+            finally:
+                conn.close()
+        else:
+            logger.warning(f"[Payment] Callback status is not SUCCESS: {trade_state}")
+            return {"status": PAYMENT_FAILED, "message": f"Trade state: {trade_state}"}
+            
+    except Exception as e:
+        logger.error(f"[Payment] Error processing callback notify: {e}")
+        return {"status": PAYMENT_FAILED, "message": str(e)}
+
