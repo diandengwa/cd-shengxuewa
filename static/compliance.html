@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="description" content="点灯蛙服务说明与合规信息 - 服务性质、调用模型信息、内容安全、免责声明、备案信息、投诉渠道">
+  <title>服务说明与合规信息 | 点灯蛙</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/base.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+  <link rel="stylesheet" href="/static/css/pages.css">
+  <style>
+    .page {
+      max-width: var(--max-width);
+      margin: 0 auto;
+      min-height: 100vh;
+      background: var(--color-bg);
+    }
+    .navbar-inner {
+      display: flex;
+      align-items: center;
+      gap: var(--space-sm);
+      width: 100%;
+    }
+    .navbar-back {
+      display: flex;
+      align-items: center;
+      color: white;
+      flex-shrink: 0;
+    }
+    .navbar-title {
+      font-size: var(--text-lg);
+      font-weight: 600;
+      color: white;
+    }
+    .legal-container {
+      max-width: var(--max-width);
+      margin: 0 auto;
+      padding: var(--space-lg) var(--space-md) var(--space-2xl);
+    }
+    .legal-intro {
+      background: var(--color-surface);
+      border-radius: var(--radius-lg);
+      padding: var(--space-lg);
+      box-shadow: var(--shadow-sm);
+      margin-bottom: var(--space-lg);
+      border-left: 3px solid var(--color-primary);
+    }
+    .legal-intro p {
+      font-size: var(--text-sm);
+      color: var(--color-text-secondary);
+      line-height: var(--leading-relaxed);
+    }
+    .legal-intro .update-date {
+      font-size: var(--text-xs);
+      color: var(--color-text-tertiary);
+      margin-top: var(--space-sm);
+    }
+    .legal-card {
+      background: var(--color-surface);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      padding: var(--space-lg);
+      margin-bottom: var(--space-md);
+    }
+    .legal-card .section-header {
+      display: flex;
+      align-items: center;
+      gap: var(--space-sm);
+      margin-bottom: var(--space-md);
+    }
+    .legal-card .section-num {
+      width: 28px;
+      height: 28px;
+      border-radius: var(--radius-full);
+      background: var(--color-primary);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: var(--text-sm);
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+    .legal-card h3 {
+      font-size: var(--text-base);
+      font-weight: 600;
+      color: var(--color-primary-dark);
+    }
+    .legal-card p {
+      font-size: var(--text-sm);
+      line-height: var(--leading-relaxed);
+      color: var(--color-text-primary);
+      margin-bottom: var(--space-sm);
+    }
+    .legal-card p:last-child {
+      margin-bottom: 0;
+    }
+    .legal-card ul {
+      padding-left: var(--space-lg);
+      list-style: disc;
+      margin-bottom: var(--space-sm);
+    }
+    .legal-card ul li {
+      font-size: var(--text-sm);
+      line-height: var(--leading-relaxed);
+      color: var(--color-text-primary);
+      margin-bottom: var(--space-xs);
+    }
+    .legal-card ul li:last-child {
+      margin-bottom: 0;
+    }
+    .legal-card .highlight-box {
+      background: var(--color-warning-bg);
+      border-radius: var(--radius-sm);
+      padding: var(--space-md);
+      margin-top: var(--space-sm);
+    }
+    .legal-card .highlight-box p {
+      color: var(--color-warning);
+      font-weight: 500;
+      margin-bottom: 0;
+    }
+    .legal-card .info-box {
+      background: var(--color-info-bg);
+      border-radius: var(--radius-sm);
+      padding: var(--space-md);
+      margin-top: var(--space-sm);
+    }
+    .legal-card .info-box p {
+      color: var(--color-info);
+      margin-bottom: 0;
+    }
+    .legal-card .danger-box {
+      background: var(--color-danger-bg);
+      border-radius: var(--radius-sm);
+      padding: var(--space-md);
+      margin-top: var(--space-sm);
+    }
+    .legal-card .danger-box p {
+      color: var(--color-danger);
+      font-weight: 500;
+      margin-bottom: 0;
+    }
+
+    /* Model Info Card */
+    .model-info {
+      background: var(--color-primary-bg);
+      border-radius: var(--radius-md);
+      padding: var(--space-lg);
+      margin: var(--space-sm) 0;
+    }
+    .model-info .model-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      padding: var(--space-xs) 0;
+      border-bottom: 1px solid var(--color-border-light);
+    }
+    .model-info .model-row:last-child {
+      border-bottom: none;
+    }
+    .model-info .model-label {
+      font-size: var(--text-xs);
+      color: var(--color-text-secondary);
+      flex-shrink: 0;
+      min-width: 80px;
+    }
+    .model-info .model-value {
+      font-size: var(--text-sm);
+      color: var(--color-text-primary);
+      font-weight: 500;
+      text-align: right;
+      word-break: break-all;
+    }
+
+    /* Filing Info */
+    .filing-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: var(--space-sm);
+      margin-top: var(--space-sm);
+    }
+    .filing-item {
+      display: flex;
+      align-items: flex-start;
+      gap: var(--space-sm);
+      padding: var(--space-md);
+      background: var(--color-surface-alt);
+      border-radius: var(--radius-sm);
+    }
+    .filing-item .filing-icon {
+      font-size: 20px;
+      flex-shrink: 0;
+    }
+    .filing-item .filing-content .filing-label {
+      font-size: var(--text-xs);
+      color: var(--color-text-secondary);
+      margin-bottom: 2px;
+    }
+    .filing-item .filing-content .filing-value {
+      font-size: var(--text-sm);
+      color: var(--color-text-primary);
+      font-weight: 500;
+    }
+
+    /* Contact Card */
+    .contact-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: var(--space-sm);
+      margin-top: var(--space-sm);
+    }
+    .contact-item {
+      display: flex;
+      align-items: center;
+      gap: var(--space-md);
+      padding: var(--space-md);
+      background: var(--color-surface-alt);
+      border-radius: var(--radius-sm);
+    }
+    .contact-item .contact-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: var(--radius-sm);
+      background: var(--color-primary);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      flex-shrink: 0;
+    }
+    .contact-item .contact-info .contact-label {
+      font-size: var(--text-xs);
+      color: var(--color-text-secondary);
+      margin-bottom: 2px;
+    }
+    .contact-item .contact-info .contact-value {
+      font-size: var(--text-sm);
+      color: var(--color-text-primary);
+      font-weight: 500;
+    }
+
+    /* Banned Words */
+    .banned-words {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-sm);
+      margin-top: var(--space-sm);
+    }
+    .banned-word {
+      padding: 4px 12px;
+      background: var(--color-danger-bg);
+      color: var(--color-danger);
+      border-radius: var(--radius-full);
+      font-size: var(--text-xs);
+      font-weight: 500;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <!-- Navbar -->
+    <nav class="navbar">
+      <div class="navbar-inner">
+        <a href="/" class="navbar-back" onclick="if(history.length>1){history.back();return false;}">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="15 18 9 12 15 6"></polyline>
+          </svg>
+        </a>
+        <span class="navbar-title">服务说明与合规信息</span>
+      </div>
+    </nav>
+
+    <!-- Content -->
+    <div class="legal-container">
+
+      <!-- Intro -->
+      <div class="legal-intro">
+        <p>本页面公示点灯蛙升学参谋服务的服务性质、调用模型信息、内容安全机制、备案信息及投诉渠道，依据《互联网信息服务深度合成管理规定》及《生成式人工智能服务管理暂行办法》要求编制。</p>
+        <p class="update-date">最近更新日期：2026年6月30日</p>
+      </div>
+
+      <!-- Section A: 服务性质 -->
+      <div class="legal-card">
+        <div class="section-header">
+          <span class="section-num">A</span>
+          <h3>服务性质</h3>
+        </div>
+        <p>本服务基于公开政策数据、用户输入与规则/模型辅助分析生成参考建议。具体而言：</p>
+        <ul>
+          <li>政策数据来源：成都市教育局及各区教育局公开发布的升学政策文件，覆盖成都23区县3年政策。</li>
+          <li>分析方式：将用户输入的家庭画像信息与政策规则进行匹配，结合已备案的大语言模型进行辅助分析与文本生成。</li>
+          <li>输出内容：升学参谋诊断报告，包括政策解读、路径研判、时间线建议等参考性内容。</li>
+          <li>服务定位：参考建议工具，非官方政策发布渠道，不替代教育局官方文件。</li>
+        </ul>
+      </div>
+
+      <!-- Section B: 调用模型信息 -->
+      <div class="legal-card">
+        <div class="section-header">
+          <span class="section-num">B</span>
+          <h3>调用模型信息</h3>
+        </div>
+        <p>本服务在研判分析过程中调用以下已备案的大语言模型：</p>
+        <div class="model-info">
+          <div class="model-row">
+            <span class="model-label">模型名称</span>
+            <span class="model-value">DeepSeek大语言模型算法</span>
+          </div>
+          <div class="model-row">
+            <span class="model-label">提供方</span>
+            <span class="model-value">北京深度求索人工智能基础技术研究有限公司</span>
+          </div>
+          <div class="model-row">
+            <span class="model-label">模型类型</span>
+            <span class="model-value">深度合成服务算法（大语言模型）</span>
+          </div>
+          <div class="model-row">
+            <span class="model-label">算法备案号</span>
+            <span class="model-value">网信算备110108970550101240011号</span>
+          </div>
+          <div class="model-row">
+            <span class="model-label">备案状态</span>
+            <span class="model-value">已完成深度合成服务算法备案</span>
+          </div>
+        </div>
+        <div class="info-box">
+          <p>该模型已通过国家互联网信息办公室深度合成服务算法备案。用户输入数据仅用于本次请求的上下文分析，不会用于模型训练。</p>
+        </div>
+      </div>
+
+      <!-- Section C: 内容安全 -->
+      <div class="legal-card">
+        <div class="section-header">
+          <span class="section-num">C</span>
+          <h3>内容安全</h3>
+        </div>
+        <p>本服务建立了多层内容安全机制，确保输出内容合规、安全：</p>
+        <ul>
+          <li><strong>敏感词拦截</strong>：对用户输入和模型输出进行敏感词检测，拦截涉政、涉黄、涉暴等违规内容。</li>
+          <li><strong>禁止词过滤</strong>：针对升学领域特设禁止词库，以下违规表述将被系统自动拦截并提示用户：</li>
+        </ul>
+        <div class="banned-words">
+          <span class="banned-word">"保证录取"</span>
+          <span class="banned-word">"走关系"</span>
+          <span class="banned-word">"内部指标"</span>
+          <span class="banned-word">"包过"</span>
+          <span class="banned-word">"百分百录取"</span>
+          <span class="banned-word">"托关系"</span>
+          <span class="banned-word">"花钱买学位"</span>
+        </div>
+        <ul style="margin-top: var(--space-sm);">
+          <li><strong>事实校验</strong>：模型输出的政策引用与数据库中的政策原文进行交叉校验，标注信息来源和政策文号。</li>
+          <li><strong>免责标注</strong>：每份研判报告首页自动添加免责声明，明确告知用户内容仅供参考。</li>
+        </ul>
+        <div class="danger-box">
+          <p>严禁使用本服务生成任何涉及"保证录取""走关系""内部指标"等违规表述。系统将自动拦截此类内容，并对多次违规的账户采取限制措施。</p>
+        </div>
+      </div>
+
+      <!-- Section D: 免责声明 -->
+      <div class="legal-card">
+        <div class="section-header">
+          <span class="section-num">D</span>
+          <h3>免责声明</h3>
+        </div>
+        <p>本服务基于公开政策数据、用户输入与规则/模型辅助分析生成参考建议，不构成任何形式的录取保证或入学承诺。</p>
+        <ul>
+          <li>研判报告中的路径建议、时间线、学校推荐等内容仅供参考，不构成对录取结果的保证。</li>
+          <li>政策数据可能因教育局调整而发生变化，本服务无法保证信息的绝对实时性。</li>
+          <li>用户基于本服务研判结果做出的任何升学决策及由此产生的后果，由用户自行承担。</li>
+        </ul>
+        <div class="highlight-box">
+          <p>所有升学决策请以成都市教育局、各区教育局官方文件为准。本服务不对任何录取结果承担保证责任。</p>
+        </div>
+      </div>
+
+      <!-- Section E: 备案信息 -->
+      <div class="legal-card">
+        <div class="section-header">
+          <span class="section-num">E</span>
+          <h3>备案信息</h3>
+        </div>
+        <p>点灯蛙已完成以下备案：</p>
+        <div class="filing-grid">
+          <div class="filing-item">
+            <span class="filing-icon">📋</span>
+            <div class="filing-content">
+              <div class="filing-label">ICP备案号</div>
+              <div class="filing-value">蜀ICP备2026032729号</div>
+            </div>
+          </div>
+          <div class="filing-item">
+            <span class="filing-icon">🛡️</span>
+            <div class="filing-content">
+              <div class="filing-label">公安联网备案号</div>
+              <div class="filing-value">
+                <a href="https://beian.mps.gov.cn/#/query/webSearch?code=51015602001931" rel="noreferrer" target="_blank">川公网安备51015602001931号</a>
+              </div>
+            </div>
+          </div>
+          <div class="filing-item">
+            <span class="filing-icon">🤖</span>
+            <div class="filing-content">
+              <div class="filing-label">算法备案（调用模型）</div>
+              <div class="filing-value">网信算备110108970550101240011号（DeepSeek大语言模型算法）</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Section F: 投诉渠道 -->
+      <div class="legal-card">
+        <div class="section-header">
+          <span class="section-num">F</span>
+          <h3>投诉渠道</h3>
+        </div>
+        <p>如您对本服务的内容安全、研判质量、隐私保护等方面有任何意见、建议或投诉，可通过以下渠道联系我们：</p>
+        <div class="contact-grid">
+          <div class="contact-item">
+            <div class="contact-icon">✉️</div>
+            <div class="contact-info">
+              <div class="contact-label">邮箱反馈</div>
+              <div class="contact-value">support@diandengwa.com</div>
+            </div>
+          </div>
+          <div class="contact-item">
+            <div class="contact-icon">💬</div>
+            <div class="contact-info">
+              <div class="contact-label">微信反馈</div>
+              <div class="contact-value">关注"点灯蛙"微信公众号，发送消息反馈</div>
+            </div>
+          </div>
+          <div class="contact-item">
+            <div class="contact-icon">📱</div>
+            <div class="contact-info">
+              <div class="contact-label">产品内反馈</div>
+              <div class="contact-value">在升学参谋工作台点击"反馈"按钮提交</div>
+            </div>
+          </div>
+        </div>
+        <div class="info-box">
+          <p>我们将在收到您的反馈后15个工作日内处理并回复。如您对处理结果不满意，可向成都市互联网信息办公室或相关主管部门进一步反映。</p>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <div class="footer-beian">
+        <span>蜀ICP备2026032729号</span>
+        <span class="divider">|</span>
+        <img src="/static/assets/beian-icon.png" alt="公安备案图标" width="20" height="20">
+        <a href="https://beian.mps.gov.cn/#/query/webSearch?code=51015602001931" rel="noreferrer" target="_blank">川公网安备51015602001931号</a>
+      </div>
+    </footer>
+  </div>
+</body>
+</html>

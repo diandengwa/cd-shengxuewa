@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="description" content="关于点灯蛙 - 成都K12升学参谋，帮成都家庭做升学决策。不是代你学，是启你悟。">
+  <title>关于点灯蛙</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/base.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+  <link rel="stylesheet" href="/static/css/pages.css">
+  <style>
+    .page {
+      max-width: var(--max-width);
+      margin: 0 auto;
+      min-height: 100vh;
+      background: var(--color-bg);
+    }
+    .navbar-inner {
+      display: flex;
+      align-items: center;
+      gap: var(--space-sm);
+      width: 100%;
+    }
+    .navbar-back {
+      display: flex;
+      align-items: center;
+      color: white;
+      flex-shrink: 0;
+    }
+    .navbar-title {
+      font-size: var(--text-lg);
+      font-weight: 600;
+      color: white;
+    }
+
+    /* Hero */
+    .about-hero {
+      text-align: center;
+      padding: var(--space-2xl) var(--space-lg) var(--space-xl);
+    }
+    .about-hero .logo-wrap {
+      width: 88px;
+      height: 88px;
+      margin: 0 auto var(--space-lg);
+      border-radius: var(--radius-xl);
+      background: var(--color-primary-bg);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 44px;
+      box-shadow: var(--shadow-md);
+    }
+    .about-hero h1 {
+      font-size: var(--text-3xl);
+      color: var(--color-primary-dark);
+      margin-bottom: var(--space-sm);
+    }
+    .about-hero .tagline {
+      font-size: var(--text-base);
+      color: var(--color-text-secondary);
+    }
+
+    /* Content */
+    .about-content {
+      padding: 0 var(--space-md) var(--space-lg);
+    }
+    .about-content p {
+      margin-bottom: var(--space-md);
+      line-height: var(--leading-relaxed);
+      font-size: var(--text-sm);
+      color: var(--color-text-primary);
+    }
+
+    /* Mission Card */
+    .mission-card {
+      background: var(--color-surface);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      padding: var(--space-xl);
+      margin-bottom: var(--space-lg);
+    }
+    .mission-card .mission-icon {
+      font-size: 32px;
+      margin-bottom: var(--space-sm);
+    }
+    .mission-card h2 {
+      font-size: var(--text-xl);
+      color: var(--color-primary-dark);
+      margin-bottom: var(--space-sm);
+    }
+    .mission-card p {
+      font-size: var(--text-sm);
+      line-height: var(--leading-relaxed);
+      color: var(--color-text-secondary);
+    }
+
+    /* Philosophy Card */
+    .philosophy-card {
+      background: var(--color-primary-bg);
+      border-radius: var(--radius-lg);
+      padding: var(--space-xl);
+      margin-bottom: var(--space-lg);
+    }
+    .philosophy-card .philo-header {
+      display: flex;
+      align-items: center;
+      gap: var(--space-sm);
+      margin-bottom: var(--space-md);
+    }
+    .philosophy-card .philo-icon {
+      font-size: 28px;
+    }
+    .philosophy-card h2 {
+      font-size: var(--text-xl);
+      color: var(--color-primary-dark);
+    }
+    .philosophy-card .philo-body p {
+      font-size: var(--text-sm);
+      line-height: var(--leading-relaxed);
+      color: var(--color-text-primary);
+      margin-bottom: var(--space-sm);
+    }
+    .philosophy-card .philo-body p:last-child {
+      margin-bottom: 0;
+    }
+    .philosophy-card .philo-quote {
+      border-left: 3px solid var(--color-accent);
+      padding-left: var(--space-md);
+      margin: var(--space-md) 0;
+      font-style: italic;
+      color: var(--color-text-secondary);
+      font-size: var(--text-sm);
+    }
+
+    /* Values Grid */
+    .values-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: var(--space-sm);
+      margin-bottom: var(--space-lg);
+    }
+    .value-card {
+      background: var(--color-surface);
+      border-radius: var(--radius-md);
+      padding: var(--space-lg);
+      box-shadow: var(--shadow-xs);
+      display: flex;
+      gap: var(--space-md);
+      align-items: flex-start;
+    }
+    .value-card .value-icon {
+      font-size: 24px;
+      flex-shrink: 0;
+      width: 40px;
+      height: 40px;
+      border-radius: var(--radius-sm);
+      background: var(--color-accent-bg);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .value-card .value-text h3 {
+      font-size: var(--text-base);
+      font-weight: 600;
+      margin-bottom: 4px;
+      color: var(--color-text-primary);
+    }
+    .value-card .value-text p {
+      font-size: var(--text-sm);
+      color: var(--color-text-secondary);
+      line-height: var(--leading-normal);
+    }
+
+    /* Slogan */
+    .slogan-card {
+      text-align: center;
+      padding: var(--space-2xl) var(--space-lg);
+      margin-bottom: var(--space-lg);
+    }
+    .slogan-card .slogan-text {
+      font-size: var(--text-2xl);
+      font-weight: 700;
+      color: var(--color-primary);
+      line-height: var(--leading-tight);
+      margin-bottom: var(--space-sm);
+    }
+    .slogan-card .slogan-sub {
+      font-size: var(--text-sm);
+      color: var(--color-text-secondary);
+    }
+
+    /* CTA */
+    .cta-section {
+      padding: var(--space-xl) var(--space-md) var(--space-2xl);
+      text-align: center;
+    }
+    .cta-section .cta-title {
+      font-size: var(--text-lg);
+      font-weight: 600;
+      margin-bottom: var(--space-sm);
+      color: var(--color-text-primary);
+    }
+    .cta-section .cta-desc {
+      font-size: var(--text-sm);
+      color: var(--color-text-secondary);
+      margin-bottom: var(--space-lg);
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <!-- Navbar -->
+    <nav class="navbar">
+      <div class="navbar-inner">
+        <a href="/" class="navbar-back" onclick="if(history.length>1){history.back();return false;}">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="15 18 9 12 15 6"></polyline>
+          </svg>
+        </a>
+        <span class="navbar-title">关于点灯蛙</span>
+      </div>
+    </nav>
+
+    <!-- Hero -->
+    <section class="about-hero">
+      <div class="logo-wrap">
+        <img src="/static/assets/logo-color.png" alt="点灯蛙" style="width:64px;height:64px;object-fit:contain;">
+      </div>
+      <h1>关于点灯蛙</h1>
+      <p class="tagline">成都K12家庭的升学参谋</p>
+    </section>
+
+    <!-- Content -->
+    <div class="about-content">
+
+      <!-- Mission -->
+      <div class="mission-card">
+        <div class="mission-icon">🎯</div>
+        <h2>我们的使命</h2>
+        <p>点灯蛙是一只专注成都升学政策的参谋蛙。我们帮成都K12家庭理清升学路径——幼升小、小升初、随迁入学、中考，从政策解读到路径规划，让每一个家庭都能基于公开信息做出更从容的升学决策。</p>
+        <p>我们不贩卖焦虑，不承诺结果。我们做的是：把碎片化的政策信息整理成你能看懂的语言，把你家的情况与政策规则做匹配研判，给出一份可参考的升学路线图。</p>
+      </div>
+
+      <!-- Brand Story: 养虾哲学 -->
+      <div class="philosophy-card">
+        <div class="philo-header">
+          <span class="philo-icon">🐸</span>
+          <h2>养虾哲学</h2>
+        </div>
+        <div class="philo-body">
+          <p>点灯蛙相信，每个孩子心里都有一盏灯。</p>
+          <p>家长的工作，不是替孩子点亮那盏灯，而是帮孩子学会自己点灯。</p>
+          <p>"养虾"是点灯蛙社群内部的谐音文化。"养蛙"就是"养点灯蛙"——不是养一个替你做决定的工具，而是教家长自己养一只智能学伴。学伴帮你查政策、理规则、出方案，但最终点亮那盏灯的手，始终是孩子自己的。</p>
+          <div class="philo-quote">
+            "授人以鱼不如授人以渔。点灯蛙不替你点灯，而是陪你找到开关。"
+          </div>
+          <p>这就是点灯蛙的品牌哲学：我们不做成替你包办一切的黑箱，我们做你身边的参谋——提供信息、提供研判、提供视角，但决策权和行动权，始终在你和孩子手中。</p>
+        </div>
+      </div>
+
+      <!-- Values -->
+      <div class="values-grid">
+        <div class="value-card">
+          <div class="value-icon">📖</div>
+          <div class="value-text">
+            <h3>政策透明</h3>
+            <p>基于成都23区县3年公开政策数据，不编造、不臆测，信息可追溯。</p>
+          </div>
+        </div>
+        <div class="value-card">
+          <div class="value-icon">🔍</div>
+          <div class="value-text">
+            <h3>参谋研判</h3>
+            <p>专家视角分析你的家庭画像与政策规则的匹配度，给出参考建议而非标准答案。</p>
+          </div>
+        </div>
+        <div class="value-card">
+          <div class="value-icon">🛡️</div>
+          <div class="value-text">
+            <h3>底线清晰</h3>
+            <p>每份研判报告都标注免责声明，所有升学决策以教育局官方文件为准。</p>
+          </div>
+        </div>
+        <div class="value-card">
+          <div class="value-icon">🔒</div>
+          <div class="value-text">
+            <h3>隐私守护</h3>
+            <p>默认不采集孩子姓名、身份证号等非必要信息，用户数据不进入模型训练。</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Slogan -->
+      <div class="slogan-card card">
+        <div class="slogan-text">不是代你学，是启你悟</div>
+        <div class="slogan-sub">—— 点灯蛙品牌主张</div>
+      </div>
+
+      <!-- CTA -->
+      <div class="cta-section">
+        <div class="cta-title">想看看升学参谋能帮你做什么？</div>
+        <div class="cta-desc">输入你家情况，获取一份个性化升学路线图</div>
+        <a href="/" class="btn btn-cta btn-lg btn-block">免费试用升学参谋</a>
+      </div>
+
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <div class="footer-beian">
+        <span>蜀ICP备2026032729号</span>
+        <span class="divider">|</span>
+        <img src="/static/assets/beian-icon.png" alt="公安备案图标" width="20" height="20">
+        <a href="https://beian.mps.gov.cn/#/query/webSearch?code=51015602001931" rel="noreferrer" target="_blank">川公网安备51015602001931号</a>
+      </div>
+    </footer>
+  </div>
+</body>
+</html>

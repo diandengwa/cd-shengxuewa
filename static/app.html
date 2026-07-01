@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="description" content="点灯蛙升学参谋 — 成都K12升学政策研判工具">
+  <title>升学参谋 · 点灯蛙</title>
+  <link rel="icon" href="/static/assets/logo-mono.png" type="image/png">
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/base.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+  <link rel="stylesheet" href="/static/css/pages.css">
+</head>
+<body>
+<div id="app" x-data="appPage()" x-init="init()" x-cloak>
+
+  <!-- 导航栏 -->
+  <nav class="navbar">
+    <div style="display:flex;align-items:center;gap:8px;">
+      <img src="/static/assets/logo-color.png" alt="点灯蛙" style="width:28px;height:28px;border-radius:50%;">
+      <span style="font-weight:600;font-size:16px;">成都升学参谋</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <template x-if="user.isLoggedIn">
+        <span style="font-size:14px;" x-text="user.nickname"></span>
+      </template>
+      <template x-if="!user.isLoggedIn">
+        <a href="#" @click.prevent="login()" style="font-size:14px;color:white;text-decoration:none;">登录</a>
+      </template>
+    </div>
+  </nav>
+
+  <!-- 内容区 -->
+  <div class="app-container">
+    <div class="app-content">
+
+      <!-- ===== Tab1: 诊断 ===== -->
+      <div x-show="activeTab === 'diagnosis'">
+
+        <!-- 学段选择 -->
+        <div class="stage-selector" x-show="diagnosis.messages.length === 0">
+          <p style="width:100%;font-size:16px;font-weight:600;margin-bottom:8px;">你家孩子要升学哪个阶段？</p>
+          <template x-for="stage in stages" :key="stage.key">
+            <div class="pill" :class="{ 'active': diagnosis.currentStage === stage.key }"
+                 @click="selectStage(stage.key)" x-text="stage.label"></div>
+          </template>
+        </div>
+
+        <!-- 对话区 -->
+        <div class="chat-area" x-show="diagnosis.messages.length > 0 || diagnosis.currentStage">
+          <!-- 欢迎消息 -->
+          <div class="chat-message" x-show="diagnosis.messages.length === 0 && diagnosis.currentStage">
+            <div class="chat-avatar">🐸</div>
+            <div class="chat-content">
+              <div class="bubble bubble-ai">
+                你好！我是点灯蛙参谋。说说你的情况，我帮你判断升学行不行。<br><br>
+                比如：户口在哪个区？居住证在哪？孩子几年级？
+              </div>
+            </div>
+          </div>
+
+          <!-- 消息列表 -->
+          <template x-for="(msg, idx) in diagnosis.messages" :key="idx">
+            <div class="chat-message" :class="{ 'user': msg.role === 'user' }">
+              <template x-if="msg.role === 'assistant'">
+                <div class="chat-avatar">🐸</div>
+              </template>
+              <div class="chat-content">
+                <div class="bubble" :class="msg.role === 'user' ? 'bubble-user' : 'bubble-ai'"
+                     x-html="formatMessage(msg.content)"></div>
+              </template>
+              <template x-if="msg.role === 'user'">
+                <div class="chat-avatar" style="background:var(--color-primary);color:white;">我</div>
+              </template>
+            </div>
+          </template>
+
+          <!-- 灯泡进度 -->
+          <div x-show="diagnosis.isDiagnosing" class="card" style="text-align:center;padding:24px;">
+            <div class="bulb-progress" style="justify-content:center;margin-bottom:12px;">
+              <template x-for="n in 4" :key="n">
+                <div class="bulb" :class="{ 'lit': diagnosis.activeStep >= n }">
+                  <span class="bulb-icon">💡</span>
+                </div>
+              </template>
+            </div>
+            <p style="font-size:14px;color:var(--color-text-secondary);">
+              <span x-show="diagnosis.activeStep === 0">参谋正在分析你的情况…</span>
+              <span x-show="diagnosis.activeStep === 1">正在研判资格与路径…</span>
+              <span x-show="diagnosis.activeStep === 2">正在分析风险点…</span>
+              <span x-show="diagnosis.activeStep === 3">正在生成时间线…</span>
+              <span x-show="diagnosis.activeStep >= 4">研判完成</span>
+            </p>
+          </div>
+
+          <!-- 诊断结果 -->
+          <div x-show="diagnosis.diagnosisResult" class="report-section">
+            <!-- Step1 情况画像 -->
+            <div class="card-flat" style="margin-bottom:12px;">
+              <div class="report-header">✅ Step1 · 情况画像</div>
+              <div class="profile-summary">
+                <div class="profile-item"><span class="label">学段</span><span class="value" x-text="getStageLabel(diagnosis.currentStage)"></span></div>
+                <div class="profile-item"><span class="label">户籍</span><span class="value" x-text="profile.hukouType || '未填写'"></span></div>
+                <div class="profile-item"><span class="label">居住区</span><span class="value" x-text="profile.liveDistrict || '未填写'"></span></div>
+                <div class="profile-item"><span class="label">社保</span><span class="value" x-text="profile.socialSecurity || '未填写'"></span></div>
+              </div>
+              <template x-if="diagnosis.diagnosisResult?.conclusion">
+                <div style="margin-top:12px;padding:8px 12px;border-radius:8px;background:var(--color-success-bg);color:var(--color-success);font-size:14px;font-weight:500;" x-text="diagnosis.diagnosisResult.conclusion"></div>
+              </template>
+            </div>
+
+            <!-- Step2 灰色地带 (PRO) -->
+            <div class="card-flat" style="margin-bottom:12px;border-left:3px solid var(--color-magic);">
+              <div class="report-header">
+                ⚡ Step2 · 灰色地带分析
+                <span class="lock-badge">🔒 PRO</span>
+              </div>
+              <template x-if="diagnosis.diagnosisResult?.grayArea">
+                <div style="font-size:14px;line-height:1.6;" x-html="diagnosis.diagnosisResult.grayArea"></div>
+              </template>
+              <template x-if="!diagnosis.diagnosisResult?.grayArea">
+                <div style="text-align:center;padding:12px;">
+                  <p style="font-size:13px;color:var(--color-text-secondary);margin-bottom:8px;">解锁政策原文与实际执行的温差分析</p>
+                  <a href="/pay" class="btn btn-cta btn-sm">解锁完整分析</a>
+                </div>
+              </template>
+            </div>
+
+            <!-- 行动清单 -->
+            <template x-if="diagnosis.diagnosisResult?.actionItems">
+              <div class="card-flat" style="margin-bottom:12px;">
+                <div class="report-header">📋 行动清单</div>
+                <template x-for="(item, idx) in diagnosis.diagnosisResult.actionItems" :key="idx">
+                  <div class="checklist-item" :class="{ 'checked': item.done }" @click="toggleChecklist(idx)">
+                    <div class="check-box">✓</div>
+                    <span class="check-text" x-text="item.text"></span>
+                  </div>
+                </template>
+              </div>
+            </template>
+
+            <!-- 操作按钮 -->
+            <div style="display:flex;gap:8px;margin-top:16px;">
+              <button class="btn btn-outline btn-sm flex-1" @click="saveReport()">📄 保存报告</button>
+              <button class="btn btn-ghost btn-sm flex-1" @click="newDiagnosis()">🔄 再次诊断</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 快捷提问 -->
+        <div x-show="diagnosis.messages.length > 0 && !diagnosis.isDiagnosing" style="margin-top:8px;">
+          <p style="font-size:12px;color:var(--color-text-secondary);margin-bottom:8px;">💡 快捷提问</p>
+          <div class="quick-questions">
+            <div class="quick-question" @click="quickAsk('社保断缴影响入学吗？')">社保断缴影响入学吗？</div>
+            <div class="quick-question" @click="quickAsk('跨区读书怎么操作？')">跨区读书怎么操作？</div>
+            <div class="quick-question" @click="quickAsk('摇号概率怎么算？')">摇号概率怎么算？</div>
+            <div class="quick-question" @click="quickAsk('随迁需要哪些材料？')">随迁需要哪些材料？</div>
+          </div>
+        </div>
+
+        <!-- 输入栏 -->
+        <div class="chat-input-bar" x-show="diagnosis.currentStage && !diagnosis.isDiagnosing">
+          <div class="quota-bar">
+            <span>剩余免费次数：<span x-text="user.quota.remaining"></span>/<span x-text="user.quota.total"></span></span>
+            <a href="/pay" class="btn btn-cta btn-sm" style="font-size:12px;padding:4px 12px;min-height:auto;">深度诊断→</a>
+          </div>
+          <div class="chat-input-wrapper">
+            <textarea class="chat-input" placeholder="输入你的问题…" rows="1"
+                      x-model="inputText" @keydown.enter.prevent="sendMessage()"></textarea>
+            <button class="chat-send-btn" @click="sendMessage()" :disabled="!inputText.trim()">↑</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== Tab2: 政策 ===== -->
+      <div x-show="activeTab === 'policy'">
+        <!-- 子Tab -->
+        <div class="policy-sub-tabs">
+          <div class="policy-sub-tab" :class="{ 'active': policy.activeSubTab === 'calendar' }" @click="policy.activeSubTab = 'calendar'">📅 升学日历</div>
+          <div class="policy-sub-tab" :class="{ 'active': policy.activeSubTab === 'jargon' }" @click="policy.activeSubTab = 'jargon'">🔤 黑话翻译</div>
+          <div class="policy-sub-tab" :class="{ 'active': policy.activeSubTab === 'district' }" @click="policy.activeSubTab = 'district'">🗺️ 划片查询</div>
+        </div>
+
+        <!-- 日历 -->
+        <div x-show="policy.activeSubTab === 'calendar'">
+          <div class="calendar-months">
+            <template x-for="m in 12" :key="m">
+              <div class="calendar-month" :class="{ 'active': policy.calendarMonth === m }" @click="policy.calendarMonth = m" x-text="m + '月'"></div>
+            </template>
+          </div>
+          <div class="calendar-events">
+            <template x-for="event in getCalendarEvents(policy.calendarMonth)" :key="event.date">
+              <div class="calendar-event">
+                <span class="signal" :class="event.level === 'red' ? 'signal-red' : event.level === 'orange' ? 'signal-yellow' : 'signal-green'"></span>
+                <span class="event-date" x-text="event.date"></span>
+                <span style="font-size:14px;flex:1;" x-text="event.title"></span>
+              </div>
+            </template>
+            <div x-show="getCalendarEvents(policy.calendarMonth).length === 0" class="empty-state">
+              <div class="empty-icon">📅</div>
+              <p>本月暂无关键节点</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- 黑话 -->
+        <div x-show="policy.activeSubTab === 'jargon'">
+          <div class="card-flat" style="margin-bottom:12px;">
+            <div class="input-group">
+              <input class="input" placeholder="输入听不懂的词…" x-model="jargonInput">
+              <button class="btn btn-primary btn-sm" @click="translateJargon()">翻译</button>
+            </div>
+          </div>
+          <p style="font-size:12px;color:var(--color-text-secondary);margin-bottom:8px;">💡 热门黑话</p>
+          <div class="jargon-tags">
+            <template x-for="term in popularJargon" :key="term">
+              <div class="jargon-tag" @click="jargonInput = term; translateJargon()" x-text="term"></div>
+            </template>
+          </div>
+          <div x-show="jargonResult" class="card-flat" style="margin-top:12px;">
+            <h4 x-text="jargonResult?.term" style="color:var(--color-primary-dark);margin-bottom:8px;"></h4>
+            <p style="font-size:14px;line-height:1.6;" x-text="jargonResult?.explanation"></p>
+          </div>
+        </div>
+
+        <!-- 划片 -->
+        <div x-show="policy.activeSubTab === 'district'">
+          <div class="schoolzone-link" style="margin-bottom:16px;">
+            <div class="link-icon">🗺️</div>
+            <div class="link-text">
+              <div style="font-weight:600;font-size:16px;">前往 SchoolZone 查询</div>
+              <div style="font-size:13px;color:var(--color-text-secondary);">精确查对口学校 · 覆盖成都全城</div>
+            </div>
+            <a href="https://xuequ.diandengwa.com" target="_blank" class="link-arrow">→</a>
+          </div>
+          <div class="card-flat">
+            <p style="font-size:14px;color:var(--color-text-secondary);">
+              SchoolZone 是点灯蛙旗下的开源学区划片查询工具，提供成都各区县最新的划片数据。
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== Tab3: 我的 ===== -->
+      <div x-show="activeTab === 'profile'">
+        <!-- 用户卡片 -->
+        <div class="user-card">
+          <div class="user-avatar">🐸</div>
+          <div class="user-info">
+            <div class="user-name" x-text="user.nickname"></div>
+            <div class="user-plan">
+              当前套餐：<span class="tag" :class="user.plan === 'FREE' ? 'tag-primary' : 'tag-magic'" x-text="getPlanLabel(user.plan)"></span>
+            </div>
+          </div>
+          <template x-if="user.plan === 'FREE'">
+            <a href="/pay" class="btn btn-cta btn-sm">升级 PRO</a>
+          </template>
+        </div>
+
+        <!-- 家庭画像 -->
+        <div style="margin-bottom:16px;">
+          <h4 style="margin-bottom:8px;">📝 家庭画像</h4>
+          <div class="profile-edit-list">
+            <div class="profile-edit-item">
+              <span class="item-label">孩子学段</span>
+              <span class="item-value" x-text="getStageLabel(profile.stage) || '未设置'"></span>
+            </div>
+            <div class="profile-edit-item">
+              <span class="item-label">户籍类型</span>
+              <span class="item-value" x-text="profile.hukouType || '未设置'"></span>
+            </div>
+            <div class="profile-edit-item">
+              <span class="item-label">户籍区县</span>
+              <span class="item-value" x-text="profile.hukouDistrict || '未设置'"></span>
+            </div>
+            <div class="profile-edit-item">
+              <span class="item-label">居住区县</span>
+              <span class="item-value" x-text="profile.liveDistrict || '未设置'"></span>
+            </div>
+            <div class="profile-edit-item">
+              <span class="item-label">社保情况</span>
+              <span class="item-value" x-text="profile.socialSecurity || '未设置'"></span>
+            </div>
+            <div class="profile-edit-item">
+              <span class="item-label">目标学校</span>
+              <span class="item-value" x-text="profile.targetSchool || '未设置'"></span>
+            </div>
+          </div>
+          <p style="font-size:12px;color:var(--color-text-secondary);margin-top:8px;text-align:center;">
+            💡 画像越完整，诊断越精准
+          </p>
+        </div>
+
+        <!-- 历史诊断 -->
+        <div style="margin-bottom:16px;">
+          <h4 style="margin-bottom:8px;">📚 历史诊断</h4>
+          <template x-if="historyReports.length === 0">
+            <div class="empty-state">
+              <div class="empty-icon">📄</div>
+              <p>暂无历史报告</p>
+            </div>
+          </template>
+          <div class="history-list">
+            <template x-for="report in historyReports" :key="report.id">
+              <div class="history-card" @click="viewReport(report)">
+                <div class="history-icon">📄</div>
+                <div class="history-info">
+                  <div class="history-title" x-text="report.title"></div>
+                  <div class="history-date" x-text="formatTime(report.timestamp)"></div>
+                </div>
+                <span style="color:var(--color-text-tertiary);">→</span>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- 邀请码 -->
+        <div style="margin-bottom:16px;">
+          <h4 style="margin-bottom:8px;">🎫 邀请码</h4>
+          <div class="invite-input-group">
+            <input class="input" placeholder="输入邀请码" x-model="inviteCode">
+            <button class="btn btn-primary btn-sm" @click="redeemCode()">兑换</button>
+          </div>
+        </div>
+
+        <!-- 设置 -->
+        <div>
+          <h4 style="margin-bottom:8px;">⚙️ 设置</h4>
+          <div class="profile-edit-list">
+            <a href="/about" class="profile-edit-item" style="text-decoration:none;">
+              <span class="item-label">关于点灯蛙</span>
+              <span style="color:var(--color-text-tertiary);">→</span>
+            </a>
+            <a href="/terms" class="profile-edit-item" style="text-decoration:none;">
+              <span class="item-label">用户协议</span>
+              <span style="color:var(--color-text-tertiary);">→</span>
+            </a>
+            <a href="/privacy" class="profile-edit-item" style="text-decoration:none;">
+              <span class="item-label">隐私政策</span>
+              <span style="color:var(--color-text-tertiary);">→</span>
+            </a>
+            <a href="/compliance" class="profile-edit-item" style="text-decoration:none;">
+              <span class="item-label">服务说明</span>
+              <span style="color:var(--color-text-tertiary);">→</span>
+            </a>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- 底部Tab栏 -->
+  <div class="tabbar">
+    <div class="tabbar-item" :class="{ 'active': activeTab === 'diagnosis' }" @click="activeTab = 'diagnosis'">
+      <span class="tab-icon">🔍</span>
+      <span>诊断</span>
+    </div>
+    <div class="tabbar-item" :class="{ 'active': activeTab === 'policy' }" @click="activeTab = 'policy'">
+      <span class="tab-icon">📋</span>
+      <span>政策</span>
+    </div>
+    <div class="tabbar-item" :class="{ 'active': activeTab === 'profile' }" @click="activeTab = 'profile'">
+      <span class="tab-icon">👤</span>
+      <span>我的</span>
+    </div>
+  </div>
+
+</div>
+
+<!-- 免责声明弹窗 -->
+<div class="modal-overlay" x-show="showDisclaimer" x-cloak @click.self="showDisclaimer = false">
+  <div class="modal">
+    <h3 style="margin-bottom:12px;">⚠️ 诊断声明</h3>
+    <p style="font-size:14px;line-height:1.6;color:var(--color-text-secondary);margin-bottom:16px;">
+      本诊断内容由"点灯蛙"基于公开政策数据、用户输入与规则/模型辅助分析生成参考建议，不构成任何形式的录取保证或入学承诺。所有升学决策请以成都市教育局、各区教育局官方文件为准。
+    </p>
+    <button class="btn btn-primary btn-block" @click="showDisclaimer = false">我知道了</button>
+  </div>
+</div>
+
+<script src="/static/js/alpine.min.js" defer></script>
+<script src="/static/js/store.js" defer></script>
+<script src="/static/js/api.js" defer></script>
+<script src="/static/js/app.js" defer></script>
+</body>
+</html>

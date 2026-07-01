@@ -1,0 +1,249 @@
+/* ============================================
+   点灯蛙 UI Components
+   按钮 / 卡片 / 标签 / 输入框 / 弹窗 / 进度
+   ============================================ */
+
+/* === Buttons === */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--space-sm);
+  padding: 12px 24px; border-radius: var(--radius-md);
+  font-size: var(--text-base); font-weight: 600; line-height: 1;
+  transition: all var(--transition-fast); white-space: nowrap; user-select: none;
+  min-height: 44px;
+}
+.btn:active { transform: scale(0.97); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-primary {
+  background: var(--color-primary); color: var(--color-text-on-primary);
+  box-shadow: var(--shadow-sm);
+}
+.btn-primary:hover { background: var(--color-primary-dark); }
+
+.btn-cta {
+  background: var(--color-warning); color: var(--color-text-on-primary);
+  box-shadow: 0 4px 12px rgba(230, 126, 34, 0.3);
+}
+.btn-cta:hover { background: #D35400; }
+
+.btn-outline {
+  background: var(--color-surface); color: var(--color-primary);
+  border: 1.5px solid var(--color-primary);
+}
+.btn-outline:hover { background: var(--color-primary-bg); }
+
+.btn-ghost {
+  background: transparent; color: var(--color-text-secondary);
+}
+.btn-ghost:hover { background: var(--color-surface-alt); }
+
+.btn-lg { padding: 16px 32px; font-size: var(--text-lg); min-height: 52px; }
+.btn-sm { padding: 8px 16px; font-size: var(--text-sm); min-height: 36px; }
+.btn-block { width: 100%; }
+
+/* === Cards === */
+.card {
+  background: var(--color-surface); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm); padding: var(--space-lg);
+}
+.card-flat {
+  background: var(--color-surface); border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border); padding: var(--space-lg);
+}
+.card-highlight {
+  background: var(--color-surface); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md); padding: var(--space-lg);
+  border-left: 3px solid var(--color-magic);
+  position: relative;
+}
+.card-highlight::before {
+  content: "推荐"; position: absolute; top: -8px; right: var(--space-lg);
+  background: var(--color-magic); color: white; font-size: var(--text-xs);
+  padding: 2px 8px; border-radius: var(--radius-full); font-weight: 600;
+}
+
+/* === Tags / Badges === */
+.tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 12px; border-radius: var(--radius-full);
+  font-size: var(--text-sm); font-weight: 500;
+}
+.tag-primary { background: var(--color-primary-bg); color: var(--color-primary-dark); }
+.tag-warning { background: var(--color-warning-bg); color: var(--color-warning); }
+.tag-success { background: var(--color-success-bg); color: var(--color-success); }
+.tag-danger { background: var(--color-danger-bg); color: var(--color-danger); }
+.tag-magic { background: var(--color-magic-bg); color: var(--color-magic); }
+.tag-accent { background: var(--color-accent-bg); color: var(--color-accent-dark); }
+
+/* === Signal Lights === */
+.signal { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+.signal-green { background: var(--signal-green); box-shadow: 0 0 4px rgba(39, 174, 96, 0.4); }
+.signal-yellow { background: var(--signal-yellow); box-shadow: 0 0 4px rgba(243, 156, 18, 0.4); }
+.signal-red { background: var(--signal-red); box-shadow: 0 0 4px rgba(231, 76, 60, 0.4); }
+
+/* === Pills (Stage Selector) === */
+.pill {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 8px 20px; border-radius: var(--radius-full);
+  font-size: var(--text-sm); font-weight: 500; color: var(--color-text-secondary);
+  background: var(--color-surface); border: 1.5px solid var(--color-border);
+  transition: all var(--transition-fast); cursor: pointer;
+}
+.pill:active { transform: scale(0.96); }
+.pill.active {
+  background: var(--color-primary); color: white;
+  border-color: var(--color-primary);
+}
+
+/* === Inputs === */
+.input {
+  width: 100%; padding: 12px 16px; border-radius: var(--radius-md);
+  border: 1.5px solid var(--color-border); background: var(--color-surface);
+  font-size: var(--text-base); color: var(--color-text-primary);
+  transition: border-color var(--transition-fast); outline: none;
+}
+.input:focus { border-color: var(--color-primary); }
+.input::placeholder { color: var(--color-text-tertiary); }
+
+.textarea { resize: vertical; min-height: 80px; line-height: var(--leading-normal); }
+
+/* === Chat Bubbles === */
+.bubble {
+  max-width: 80%; padding: 12px 16px; border-radius: var(--radius-lg);
+  font-size: var(--text-sm); line-height: var(--leading-normal); word-break: break-word;
+}
+.bubble-ai {
+  background: var(--color-surface); color: var(--color-text-primary);
+  border-top-left-radius: var(--radius-xs);
+  box-shadow: var(--shadow-xs);
+}
+.bubble-user {
+  background: var(--color-primary); color: white;
+  border-top-right-radius: var(--radius-xs);
+  margin-left: auto;
+}
+
+/* === Progress / Loading === */
+.progress-bar {
+  width: 100%; height: 4px; background: var(--color-surface-alt);
+  border-radius: var(--radius-full); overflow: hidden;
+}
+.progress-bar-fill {
+  height: 100%; background: var(--color-primary); border-radius: var(--radius-full);
+  transition: width var(--transition-slow);
+}
+
+/* === Bulb Progress (四步裁决进度) === */
+.bulb-progress { display: flex; gap: var(--space-sm); align-items: center; }
+.bulb {
+  width: 24px; height: 24px; border-radius: 50%;
+  border: 2px solid var(--color-border);
+  background: var(--color-surface); transition: all var(--transition-normal);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px;
+}
+.bulb.lit {
+  border-color: var(--color-accent); background: var(--color-accent-bg);
+  animation: bulb-glow 0.6s ease forwards;
+}
+.bulb .bulb-icon { opacity: 0; transition: opacity var(--transition-normal); }
+.bulb.lit .bulb-icon { opacity: 1; }
+
+/* === Tab Bar === */
+.tabbar {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  height: calc(var(--tabbar-height) + var(--safe-bottom));
+  background: var(--color-surface); border-top: 1px solid var(--color-border-light);
+  display: flex; z-index: 100; padding-bottom: var(--safe-bottom);
+}
+.tabbar-item {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 2px; font-size: 10px; color: var(--color-text-tertiary); transition: color var(--transition-fast);
+}
+.tabbar-item.active { color: var(--color-primary); }
+.tabbar-item .tab-icon { font-size: 20px; line-height: 1; }
+
+/* === Navbar === */
+.navbar {
+  height: var(--nav-height); background: var(--color-primary);
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 var(--space-md); position: sticky; top: 0; z-index: 100;
+  color: white;
+}
+.navbar-transparent {
+  background: transparent; color: var(--color-text-primary);
+  position: fixed; top: 0; left: 0; right: 0;
+  transition: background var(--transition-normal);
+}
+.navbar-transparent.scrolled {
+  background: var(--color-surface); color: var(--color-text-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+/* === Modal === */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 200; padding: var(--space-lg);
+}
+.modal {
+  background: var(--color-surface); border-radius: var(--radius-lg);
+  padding: var(--space-xl); max-width: 400px; width: 100%;
+  box-shadow: var(--shadow-xl); animation: slideUp var(--transition-normal);
+}
+
+/* === Divider === */
+.divider { height: 1px; background: var(--color-border-light); margin: var(--space-md) 0; }
+.divider-text { display: flex; align-items: center; gap: var(--space-md); color: var(--color-text-tertiary); font-size: var(--text-sm); }
+.divider-text::before, .divider-text::after { content: ''; flex: 1; height: 1px; background: var(--color-border-light); }
+
+/* === Footer === */
+.footer {
+  background: var(--color-surface); padding: var(--space-lg) var(--space-md);
+  text-align: center; font-size: var(--text-xs); color: var(--color-text-tertiary);
+  border-top: 1px solid var(--color-border-light);
+}
+.footer-beian { display: flex; align-items: center; justify-content: center; gap: var(--space-sm); flex-wrap: wrap; }
+.footer-beian a { color: var(--color-text-tertiary); }
+.footer-beian a:hover { color: var(--color-primary); }
+.footer-beian .divider { width: 1px; height: 12px; margin: 0; }
+
+/* === Lock Badge (付费内容) === */
+.lock-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: var(--radius-xs);
+  background: var(--color-magic-bg); color: var(--color-magic);
+  font-size: var(--text-xs); font-weight: 600;
+}
+
+/* === Accordion === */
+.accordion-item { border-bottom: 1px solid var(--color-border-light); }
+.accordion-header {
+  padding: var(--space-md) 0; display: flex; justify-content: space-between; align-items: center;
+  cursor: pointer; font-weight: 500;
+}
+.accordion-content { padding-bottom: var(--space-md); display: none; }
+.accordion-item.open .accordion-content { display: block; animation: slideDown var(--transition-fast); }
+
+/* === Checklist === */
+.checklist-item {
+  display: flex; align-items: flex-start; gap: var(--space-sm);
+  padding: var(--space-sm) 0; cursor: pointer;
+}
+.checklist-item .check-box {
+  width: 20px; height: 20px; border-radius: var(--radius-xs);
+  border: 2px solid var(--color-border); flex-shrink: 0; margin-top: 2px;
+  display: flex; align-items: center; justify-content: center;
+  transition: all var(--transition-fast);
+}
+.checklist-item.checked .check-box { background: var(--color-primary); border-color: var(--color-primary); }
+.checklist-item.checked .check-text { text-decoration: line-through; color: var(--color-text-tertiary); }
+
+/* === Empty State === */
+.empty-state { text-align: center; padding: var(--space-2xl) var(--space-lg); color: var(--color-text-tertiary); }
+.empty-state .empty-icon { font-size: 48px; margin-bottom: var(--space-md); opacity: 0.5; }
+
+/* === Skeleton === */
+.skeleton { background: var(--color-surface-alt); border-radius: var(--radius-sm); animation: pulse 2s infinite; }
+.skeleton-text { height: 14px; margin-bottom: 8px; }
+.skeleton-text:last-child { width: 60%; }

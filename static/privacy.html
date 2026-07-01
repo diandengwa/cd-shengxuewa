@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="description" content="点灯蛙隐私政策 - 收集的信息、信息用途、信息存储、信息保护、未成年人保护、数据不入训练、删除权利、Cookie说明">
+  <title>隐私政策 | 点灯蛙</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/base.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+  <link rel="stylesheet" href="/static/css/pages.css">
+  <style>
+    .page {
+      max-width: var(--max-width);
+      margin: 0 auto;
+      min-height: 100vh;
+      background: var(--color-bg);
+    }
+    .navbar-inner {
+      display: flex;
+      align-items: center;
+      gap: var(--space-sm);
+      width: 100%;
+    }
+    .navbar-back {
+      display: flex;
+      align-items: center;
+      color: white;
+      flex-shrink: 0;
+    }
+    .navbar-title {
+      font-size: var(--text-lg);
+      font-weight: 600;
+      color: white;
+    }
+    .legal-container {
+      max-width: var(--max-width);
+      margin: 0 auto;
+      padding: var(--space-lg) var(--space-md) var(--space-2xl);
+    }
+    .legal-intro {
+      background: var(--color-surface);
+      border-radius: var(--radius-lg);
+      padding: var(--space-lg);
+      box-shadow: var(--shadow-sm);
+      margin-bottom: var(--space-lg);
+      border-left: 3px solid var(--color-primary);
+    }
+    .legal-intro p {
+      font-size: var(--text-sm);
+      color: var(--color-text-secondary);
+      line-height: var(--leading-relaxed);
+    }
+    .legal-intro .update-date {
+      font-size: var(--text-xs);
+      color: var(--color-text-tertiary);
+      margin-top: var(--space-sm);
+    }
+    .legal-card {
+      background: var(--color-surface);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      padding: var(--space-lg);
+      margin-bottom: var(--space-md);
+    }
+    .legal-card .section-header {
+      display: flex;
+      align-items: center;
+      gap: var(--space-sm);
+      margin-bottom: var(--space-md);
+    }
+    .legal-card .section-num {
+      width: 28px;
+      height: 28px;
+      border-radius: var(--radius-full);
+      background: var(--color-primary);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: var(--text-sm);
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+    .legal-card h3 {
+      font-size: var(--text-base);
+      font-weight: 600;
+      color: var(--color-primary-dark);
+    }
+    .legal-card p {
+      font-size: var(--text-sm);
+      line-height: var(--leading-relaxed);
+      color: var(--color-text-primary);
+      margin-bottom: var(--space-sm);
+    }
+    .legal-card p:last-child {
+      margin-bottom: 0;
+    }
+    .legal-card ul {
+      padding-left: var(--space-lg);
+      list-style: disc;
+      margin-bottom: var(--space-sm);
+    }
+    .legal-card ul li {
+      font-size: var(--text-sm);
+      line-height: var(--leading-relaxed);
+      color: var(--color-text-primary);
+      margin-bottom: var(--space-xs);
+    }
+    .legal-card ul li:last-child {
+      margin-bottom: 0;
+    }
+    .legal-card .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: var(--space-sm) 0;
+    }
+    .legal-card .data-table th,
+    .legal-card .data-table td {
+      text-align: left;
+      padding: var(--space-sm) var(--space-md);
+      font-size: var(--text-xs);
+      border-bottom: 1px solid var(--color-border-light);
+    }
+    .legal-card .data-table th {
+      color: var(--color-text-secondary);
+      font-weight: 500;
+    }
+    .legal-card .data-table td {
+      color: var(--color-text-primary);
+    }
+    .legal-card .highlight-box {
+      background: var(--color-warning-bg);
+      border-radius: var(--radius-sm);
+      padding: var(--space-md);
+      margin-top: var(--space-sm);
+    }
+    .legal-card .highlight-box p {
+      color: var(--color-warning);
+      font-weight: 500;
+      margin-bottom: 0;
+    }
+    .legal-card .info-box {
+      background: var(--color-info-bg);
+      border-radius: var(--radius-sm);
+      padding: var(--space-md);
+      margin-top: var(--space-sm);
+    }
+    .legal-card .info-box p {
+      color: var(--color-info);
+      margin-bottom: 0;
+    }
+    .legal-card .success-box {
+      background: var(--color-success-bg);
+      border-radius: var(--radius-sm);
+      padding: var(--space-md);
+      margin-top: var(--space-sm);
+    }
+    .legal-card .success-box p {
+      color: var(--color-success);
+      margin-bottom: 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <!-- Navbar -->
+    <nav class="navbar">
+      <div class="navbar-inner">
+        <a href="/" class="navbar-back" onclick="if(history.length>1){history.back();return false;}">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="15 18 9 12 15 6"></polyline>
+          </svg>
+        </a>
+        <span class="navbar-title">隐私政策</span>
+      </div>
+    </nav>
+
+    <!-- Content -->
+    <div class="legal-container">
+
+      <!-- Intro -->
+      <div class="legal-intro">
+        <p>点灯蛙高度重视用户隐私保护。本隐私政策说明我们收集、使用、存储和保护您个人信息的方式。请在使用本服务前仔细阅读本政策。</p>
+        <p class="update-date">最近更新日期：2026年6月30日</p>
+      </div>
+
+      <!-- Section A: 收集的信息 -->
+      <div class="legal-card">
+        <div class="section-header">
+          <span class="section-num">A</span>
+          <h3>收集的信息</h3>
+        </div>
+        <p>为提供升学研判服务，我们收集以下信息：</p>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>信息类别</th>
+              <th>具体内容</th>
+              <th>是否必要</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>微信账号信息</td>
+              <td>微信 openid、昵称</td>
+              <td>必要（用于登录）</td>
+            </tr>
+            <tr>
+              <td>家庭画像</td>
+              <td>户籍所在区、居住地、社保缴纳情况、孩子学段、目标学校</td>
+              <td>必要（用于研判）</td>
+            </tr>
+            <tr>
+              <td>对话记录</td>
+              <td>用户与参谋的对话内容</td>
+              <td>必要（用于生成报告）</td>
+            </tr>
+            <tr>
+              <td>设备信息</td>
+              <td>浏览器类型、访问时间</td>
+              <td>非必要（用于服务优化）</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="info-box">
+          <p>家庭画像信息采用枚举选择方式采集（如下拉选择、标签点击），不使用自由文本输入，以减少不必要的个人信息暴露。</p>
+        </div>
+      </div>
+
+      <!-- Section B: 信息用途 -->
+      <div class="legal-card">
+        <div class="section-header">
+          <span class="section-num">B</span>
+          <h3>信息用途</h3>
+        </div>
+        <p>我们收集的个人信息仅用于以下目的：</p>
+        <ul>
+          <li><strong>生成研判报告</strong>：根据您的家庭画像与公开政策数据进行匹配分析，生成本次升学参谋诊断报告。</li>
+          <li><strong>保存历史记录</strong>：将您的研判报告和对话历史保存在您的个人账户中，方便您随时回看和对比。</li>
+          <li><strong>改善服务质量</strong>：在匿名化处理的前提下，分析用户常见问题和服务使用情况，优化产品功能和政策数据覆盖范围。</li>
+          <li><strong>账号管理</strong>：验证用户身份、管理订阅状态和使用配额。</li>
+        </ul>
+        <p>我们不会将您的个人信息用于本政策未载明的其他用途。如需变更用途，将另行取得您的授权同意。</p>
+      </div>
+
+      <!-- Section C: 信息存储 -->
+      <div class="legal-card">
+        <div class="section-header">
+          <span class="section-num">C</span>
+          <h3>信息存储</h3>
+        </div>
+        <p>您的个人信息存储方式如下：</p>
+        <ul>
+          <li><strong>存储位置</strong>：用户数据存储在点灯蛙运营方的服务器数据库中，服务器部署在中国境内。</li>
+          <li><strong>加密传输</strong>：用户与服务器之间的数据传输采用 HTTPS/TLS 加密协议，防止传输过程中被窃听或篡改。</li>
+          <li><strong>存储期限</strong>：用户数据在账户存续期间持续保存。账户注销或用户申请删除后，数据将在30个工作日内从数据库中永久删除。</li>
+          <li><strong>访问控制</strong>：仅授权技术人员可在必要范围内访问数据库，且操作行为有日志记录。</li>
+        </ul>
+      </div>
+
+      <!-- Section D: 信息保护 -->
+      <div class="legal-card">
+        <div class="section-header">
+          <span class="section-num">D</span>
+          <h3>信息保护</h3>
+        </div>
+        <p>我们采取以下措施保护您的个人信息安全：</p>
+        <ul>
+          <li>数据传输全程加密（HTTPS/TLS），数据库敏感字段加密存储。</li>
+          <li>服务器部署防火墙、入侵检测等安全防护措施，定期进行安全漏洞扫描。</li>
+          <li>内部人员访问数据需经授权审批，操作行为全程记录可审计。</li>
+          <li>制定数据安全事件应急预案，如发生数据泄露将及时通知受影响用户。</li>
+        </ul>
+        <div class="highlight-box">
+          <p>我们承诺：不会出售用户信息给任何第三方。未经用户同意，不会向第三方共享用户的个人信息（法律法规要求或主管部门指令除外）。</p>
+        </div>
+      </div>
+
+      <!-- Section E: 未成年人保护 -->
+      <div class="legal-card">
+        <div class="section-header">
+          <span class="section-num">E</span>
+          <h3>未成年人保护</h3>
+        </div>
+        <p>点灯蛙服务的使用者是家长（成年人），研判对象是K12阶段学生。我们采取以下措施保护未成年人信息：</p>
+        <ul>
+          <li><strong>默认不采集非必要信息</strong>：默认不采集孩子姓名、身份证号、学校班级等非必要个人信息。研判所需信息（如学段、目标学校）均通过枚举选择方式提供。</li>
+          <li><strong>枚举代替自由文本</strong>：所有信息录入字段采用下拉选择、标签点击等枚举方式，不使用自由文本输入框，避免无意中暴露孩子敏感信息。</li>
+          <li><strong>数据最小化原则</strong>：仅收集研判必需的最少信息，不过度采集。</li>
+          <li><strong>家长授权</strong>：本服务由家长使用并授权，家长应对所提供信息的真实性和合法性负责。</li>
+        </ul>
+        <div class="success-box">
+          <p>如发现我们无意中采集了未成年人的非必要信息，请通过反馈渠道告知，我们将立即删除。</p>
+        </div>
+      </div>
+
+      <!-- Section F: 数据不入训练 -->
+      <div class="legal-card">
+        <div class="section-header">
+          <span class="section-num">F</span>
+          <h3>数据不入训练</h3>
+        </div>
+        <p>我们明确承诺：用户输入的个人信息和对话内容不直接进入大语言模型的训练数据集。</p>
+        <ul>
+          <li>研判服务通过调用已备案的第三方大语言模型（DeepSeek）API 生成分析结果，用户数据仅用于本次请求的上下文，不会被用于模型训练。</li>
+          <li>如未来计划将用户数据用于产品改进（如政策匹配规则优化），必须先进行匿名化处理，去除所有可识别个人身份的信息。</li>
+          <li>如需将用户数据用于非匿名化的分析或研究目的，将另行取得用户的明确授权同意。</li>
+          <li>用户有权拒绝其数据被用于产品改进，拒绝不影响正常使用本服务。</li>
+        </ul>
+        <div class="highlight-box">
+          <p>用户输入数据不进入模型训练。这是我们的底线承诺，不会因服务升级而单方面改变。</p>
+        </div>
+      </div>
+
+      <!-- Section G: 删除权利 -->
+      <div class="legal-card">
+        <div class="section-header">
+          <span class="section-num">G</span>
+          <h3>删除权利</h3>
+        </div>
+        <p>根据《中华人民共和国个人信息保护法》，您享有以下数据权利：</p>
+        <ul>
+          <li><strong>查询权</strong>：您可随时在"我的"页面查看已保存的家庭画像和历史研判记录。</li>
+          <li><strong>更正权</strong>：您可随时修改已提交的家庭画像信息。</li>
+          <li><strong>删除权</strong>：您可申请删除个人数据，包括历史研判报告、对话记录、家庭画像等。删除操作不可恢复。</li>
+          <li><strong>注销权</strong>：您可申请注销账户，注销后所有关联数据将在30个工作日内永久删除。</li>
+        </ul>
+        <div class="info-box">
+          <p>如需行使删除权利或注销账户，请通过产品内反馈功能或发送邮件至 support@diandengwa.com 提出申请，我们将在15个工作日内处理并回复。</p>
+        </div>
+      </div>
+
+      <!-- Section H: Cookie说明 -->
+      <div class="legal-card">
+        <div class="section-header">
+          <span class="section-num">H</span>
+          <h3>Cookie说明</h3>
+        </div>
+        <p>本服务使用 localStorage 在用户浏览器本地存储以下信息：</p>
+        <ul>
+          <li><strong>登录态</strong>：存储微信登录凭证，保持登录状态，避免重复扫码授权。</li>
+          <li><strong>对话历史</strong>：缓存最近一次对话内容，在页面刷新后可恢复对话上下文。</li>
+          <li><strong>用户偏好</strong>：记录用户选择的学段等偏好设置，提升下次使用体验。</li>
+        </ul>
+        <p>这些数据存储在您的本地设备中，不会上传至服务器。您可以随时通过浏览器设置清除 localStorage 数据，清除后需重新登录。</p>
+        <div class="info-box">
+          <p>本服务不使用跟踪型 Cookie，不进行跨站追踪，不用于广告投放。</p>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <div class="footer-beian">
+        <span>蜀ICP备2026032729号</span>
+        <span class="divider">|</span>
+        <img src="/static/assets/beian-icon.png" alt="公安备案图标" width="20" height="20">
+        <a href="https://beian.mps.gov.cn/#/query/webSearch?code=51015602001931" rel="noreferrer" target="_blank">川公网安备51015602001931号</a>
+      </div>
+    </footer>
+  </div>
+</body>
+</html>

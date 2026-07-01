@@ -40,7 +40,6 @@ Desktop.ini
 .DS_Store
 
 # Documentation (non-essential)
-*.html
 *.pdf
 *-彩排*.md
 *_彩排.md
@@ -78,7 +77,10 @@ stuperpowers-main.zip
 harness-books-main.zip
 
 # Large files
-*.md (exclude root level documentation files)
 AI对话实录*.md
 *彩排*.md
 *排练*.md
+
+# Database
+*.db
+*.db-journal

@@ -1,0 +1,104 @@
+/* ============================================
+   点灯蛙 Design Tokens
+   基于 VIS v4.0 品牌设计包 · 蜀都青+跃迁橙+启蒙金
+   ============================================ */
+
+:root {
+  /* === 品牌主色 === */
+  --color-primary: #148F77;
+  --color-primary-dark: #0E6B58;
+  --color-primary-light: #1AB39A;
+  --color-primary-bg: #E8F5F2;
+
+  /* === 灵魂点缀 === */
+  --color-accent: #F4D03F;
+  --color-accent-dark: #D4AC0D;
+  --color-accent-bg: #FEF9E7;
+
+  /* === 功能色 === */
+  --color-success: #27AE60;
+  --color-success-bg: #EAFAF1;
+  --color-warning: #E67E22;
+  --color-warning-bg: #FDF2E9;
+  --color-danger: #C0392B;
+  --color-danger-bg: #FDEDEC;
+  --color-info: #1B4F72;
+  --color-info-bg: #EBF5FB;
+
+  /* === 魔法辅助 === */
+  --color-magic: #8E44AD;
+  --color-magic-bg: #F5EEF8;
+
+  /* === 中性色 === */
+  --color-bg: #FAFAFA;
+  --color-surface: #FFFFFF;
+  --color-surface-alt: #F5F5F5;
+  --color-border: #E0E0E0;
+  --color-border-light: #EEEEEE;
+  --color-text-primary: #2C3E50;
+  --color-text-secondary: #7F8C8D;
+  --color-text-tertiary: #BDC3C7;
+  --color-text-on-primary: #FFFFFF;
+  --color-text-on-dark: #FFFFFF;
+
+  /* === 信号灯 === */
+  --signal-green: #27AE60;
+  --signal-yellow: #F39C12;
+  --signal-red: #E74C3C;
+
+  /* === 圆角 === */
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-full: 999px;
+
+  /* === 阴影 === */
+  --shadow-xs: 0 1px 2px rgba(20, 143, 119, 0.04);
+  --shadow-sm: 0 1px 3px rgba(20, 143, 119, 0.08);
+  --shadow-md: 0 4px 12px rgba(20, 143, 119, 0.12);
+  --shadow-lg: 0 8px 24px rgba(20, 143, 119, 0.16);
+  --shadow-xl: 0 16px 48px rgba(20, 143, 119, 0.20);
+
+  /* === 字体 === */
+  --font-sans: -apple-system, BlinkMacSystemFont, "PingFang SC",
+               "Noto Sans CJK SC", "Microsoft YaHei", "Helvetica Neue", sans-serif;
+  --font-mono: "SF Mono", "Fira Code", "Source Code Pro", monospace;
+
+  /* === 字号 === */
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-lg: 18px;
+  --text-xl: 20px;
+  --text-2xl: 24px;
+  --text-3xl: 30px;
+  --text-4xl: 36px;
+  --text-5xl: 48px;
+
+  /* === 行高 === */
+  --leading-tight: 1.2;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.75;
+
+  /* === 间距 === */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+  --space-3xl: 64px;
+
+  /* === 过渡 === */
+  --transition-fast: 150ms ease;
+  --transition-normal: 250ms ease;
+  --transition-slow: 400ms ease;
+
+  /* === 布局 === */
+  --max-width: 640px;
+  --nav-height: 56px;
+  --tabbar-height: 60px;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
